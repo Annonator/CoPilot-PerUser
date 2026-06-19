@@ -12,6 +12,7 @@ This project is a self-service dashboard for GitHub Copilot AI credit usage. Use
 - GitHub users are normal GitHub users with SAML SSO, not Enterprise Managed Users.
 - The linked GitHub SSO identity `NameID` is the company email address.
 - Start with a live proxy plus short cache. Do not persist enterprise-wide billing data initially.
+- The app must run both directly on the host and through Docker Compose.
 - Store source-backed design specs in `docs/superpowers/specs/`.
 
 ## Core Data Flow
@@ -52,6 +53,14 @@ Map billing fields to UI labels consistently:
 - Normal users may only access their own derived usage.
 - Keep admin views, if added later, behind separate endpoints and explicit role checks.
 - Do not log OAuth tokens, GitHub admin tokens, or full raw billing payloads.
+
+## Docker Expectations
+
+- Keep service code under `src/`, with `src/web/Dockerfile` and `src/api/Dockerfile`.
+- Use a root `docker-compose.yml` for local container startup.
+- Compose runs `web` and `api`; do not add a database until persistence is explicitly needed.
+- Keep secrets in ignored local env files, not in Compose or Dockerfiles.
+- In Compose, the web service reaches the API by service name; direct host development can use `API_BASE_URL`.
 
 ## Efficient Workflow
 

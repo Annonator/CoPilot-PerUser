@@ -18,6 +18,7 @@ The target user-facing experience mirrors the GitHub Enterprise "AI usage" billi
 - GitHub accounts are normal GitHub users with SAML SSO, not Enterprise Managed Users.
 - The linked SSO identity `NameID` is the company email address.
 - The app starts as a live proxy with a short cache, not daily ingestion.
+- The app must run locally in Docker as well as directly from the host.
 - Durable project context is recorded in root `AGENTS.MD`.
 
 ## Architecture
@@ -37,17 +38,42 @@ Recommended repository shape:
 ```text
 src/
   web/
-    Next.js app, Google auth, dashboard UI, API client
+    Next.js app, Google auth, dashboard UI, API client, Dockerfile
   api/
-    Go HTTP service, auth validation, GitHub clients, usage normalization
+    Go HTTP service, auth validation, GitHub clients, usage normalization, Dockerfile
   shared/
     Optional generated OpenAPI schema or TypeScript types
 docs/
   superpowers/specs/
+docker-compose.yml
 AGENTS.MD
 ```
 
 The frontend must never receive or handle GitHub admin credentials. The Go service is the only component allowed to call GitHub billing or identity APIs.
+
+## Runtime And Docker
+
+The scaffold must support two local runtime modes:
+
+- Direct host execution for fast development: run the Next.js dev server and Go API independently.
+- Docker Compose execution for environment parity: run `web` and `api` containers from a root `docker-compose.yml`.
+
+Docker layout:
+
+```text
+docker-compose.yml
+src/web/Dockerfile
+src/api/Dockerfile
+```
+
+The Compose setup will load local environment from `.env` or `.env.local` files that are ignored by git. It will expose the web app on a browser-friendly port and the API on an internal or explicit local port. The web container will call the API by service name inside Compose, while direct host development can use `API_BASE_URL`.
+
+Each Dockerfile will use a multi-stage build:
+
+- `src/web/Dockerfile`: install dependencies, build Next.js, run the production server.
+- `src/api/Dockerfile`: build a static Go binary, run it in a small runtime image.
+
+The initial scaffold does not require a database container because enterprise-wide billing data is not persisted. Add one only if the design changes to daily ingestion or durable audit storage.
 
 ## Authentication And Authorization
 
@@ -162,6 +188,7 @@ AUTH_SECRET
 COMPANY_EMAIL_DOMAINS
 API_BASE_URL
 APP_TOKEN_SECRET
+PORT
 
 GITHUB_API_BASE_URL
 GITHUB_ENTERPRISE_SLUG

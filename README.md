@@ -43,6 +43,13 @@ npm run dev
 
 Open `http://localhost:3000`.
 
+For a local production build without real OAuth credentials:
+
+```bash
+cd src/web
+AUTH_SECRET=test APP_TOKEN_SECRET=test COMPANY_EMAIL_DOMAINS=company.name API_BASE_URL=http://localhost:8080 AUTH_GOOGLE_ID=test AUTH_GOOGLE_SECRET=test npm run build
+```
+
 ## Docker Development
 
 ```bash

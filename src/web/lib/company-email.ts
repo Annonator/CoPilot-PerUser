@@ -22,3 +22,10 @@ export function isAllowedCompanyEmail(email: string | null | undefined): boolean
   const domain = parts[1].toLowerCase();
   return configuredDomains().includes(domain);
 }
+
+export function isVerifiedAllowedCompanyEmail(
+  email: string | null | undefined,
+  emailVerified: unknown
+): boolean {
+  return emailVerified === true && isAllowedCompanyEmail(email);
+}

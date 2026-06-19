@@ -3,7 +3,11 @@ import "server-only";
 import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
 
-import { firstConfiguredCompanyDomain, isAllowedCompanyEmail } from "@/lib/company-email";
+import {
+  firstConfiguredCompanyDomain,
+  isAllowedCompanyEmail,
+  isVerifiedAllowedCompanyEmail
+} from "@/lib/company-email";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   secret: process.env.AUTH_SECRET,
@@ -20,8 +24,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     })
   ],
   callbacks: {
-    async signIn({ profile, user }) {
-      return isAllowedCompanyEmail(profile?.email ?? user.email);
+    async signIn({ profile }) {
+      return isVerifiedAllowedCompanyEmail(profile?.email, profile?.email_verified);
     }
   }
 });

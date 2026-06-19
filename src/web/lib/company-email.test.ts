@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { isAllowedCompanyEmail } from "./company-email";
+import { isAllowedCompanyEmail, isVerifiedAllowedCompanyEmail } from "./company-email";
 
 describe("isAllowedCompanyEmail", () => {
   it("allows exact emails with a configured domain case-insensitively", () => {
@@ -39,5 +39,27 @@ describe("isAllowedCompanyEmail", () => {
     vi.stubEnv("COMPANY_EMAIL_DOMAINS", "company.name");
 
     expect(isAllowedCompanyEmail(" ana@company.name ")).toBe(false);
+  });
+});
+
+describe("isVerifiedAllowedCompanyEmail", () => {
+  it("allows a configured company email only when Google verified it", () => {
+    vi.stubEnv("COMPANY_EMAIL_DOMAINS", "company.name");
+
+    expect(isVerifiedAllowedCompanyEmail("ana@company.name", true)).toBe(true);
+  });
+
+  it("rejects unverified Google profile emails even when the domain matches", () => {
+    vi.stubEnv("COMPANY_EMAIL_DOMAINS", "company.name");
+
+    expect(isVerifiedAllowedCompanyEmail("ana@company.name", false)).toBe(false);
+    expect(isVerifiedAllowedCompanyEmail("ana@company.name", "true")).toBe(false);
+    expect(isVerifiedAllowedCompanyEmail("ana@company.name", undefined)).toBe(false);
+  });
+
+  it("rejects verified emails outside configured company domains", () => {
+    vi.stubEnv("COMPANY_EMAIL_DOMAINS", "company.name");
+
+    expect(isVerifiedAllowedCompanyEmail("ana@example.org", true)).toBe(false);
   });
 });

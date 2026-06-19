@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 func TestLoadFromEnv(t *testing.T) {
 	setValidEnv(t)
@@ -42,6 +45,39 @@ func TestLoadRequiresSecrets(t *testing.T) {
 	}
 }
 
+func TestLoadUsesDefaults(t *testing.T) {
+	for _, key := range []string{
+		"PORT",
+		"GITHUB_API_BASE_URL",
+		"GITHUB_IDENTITY_RESOLVER",
+		"USAGE_CACHE_TTL",
+	} {
+		unsetEnv(t, key)
+	}
+	t.Setenv("COMPANY_EMAIL_DOMAINS", "company.name")
+	t.Setenv("APP_TOKEN_SECRET", "secret")
+	t.Setenv("GITHUB_ENTERPRISE_SLUG", "marbis")
+	t.Setenv("GITHUB_ADMIN_TOKEN", "ghp_secret")
+	t.Setenv("GITHUB_IDENTITY_STATIC_MAP_PATH", "internal/testfixtures/identity-map.json")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Port != "8080" {
+		t.Fatalf("Port = %q", cfg.Port)
+	}
+	if cfg.GitHubAPIBaseURL != "https://api.github.com" {
+		t.Fatalf("GitHubAPIBaseURL = %q", cfg.GitHubAPIBaseURL)
+	}
+	if cfg.GitHubIdentityResolver != "static" {
+		t.Fatalf("GitHubIdentityResolver = %q", cfg.GitHubIdentityResolver)
+	}
+	if cfg.UsageCacheTTL.String() != "10m0s" {
+		t.Fatalf("UsageCacheTTL = %s", cfg.UsageCacheTTL)
+	}
+}
+
 func TestLoadRejectsNonPositiveUsageCacheTTL(t *testing.T) {
 	for _, ttl := range []string{"0s", "-1m"} {
 		t.Run(ttl, func(t *testing.T) {
@@ -67,4 +103,19 @@ func setValidEnv(t *testing.T) {
 	t.Setenv("GITHUB_IDENTITY_RESOLVER", "static")
 	t.Setenv("GITHUB_IDENTITY_STATIC_MAP_PATH", "internal/testfixtures/identity-map.json")
 	t.Setenv("USAGE_CACHE_TTL", "")
+}
+
+func unsetEnv(t *testing.T, key string) {
+	t.Helper()
+	value, ok := os.LookupEnv(key)
+	if err := os.Unsetenv(key); err != nil {
+		t.Fatalf("Unsetenv(%q) error = %v", key, err)
+	}
+	t.Cleanup(func() {
+		if ok {
+			_ = os.Setenv(key, value)
+			return
+		}
+		_ = os.Unsetenv(key)
+	})
 }

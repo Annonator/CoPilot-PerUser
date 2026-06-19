@@ -3,6 +3,7 @@ import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { UsageDashboard } from "./usage-dashboard";
+import type { MonthlyUsage } from "@/lib/usage-types";
 
 const usage = {
   period: {
@@ -12,7 +13,7 @@ const usage = {
   },
   user: {
     email: "ana@company.name",
-    login: "ana"
+    githubLogin: "ana"
   },
   totals: {
     includedCredits: 1250,
@@ -24,10 +25,13 @@ const usage = {
   daily: [
     {
       day: "2026-06-01",
-      includedCredits: 900,
-      additionalCredits: 100,
-      grossAmount: 10,
-      additionalUsage: 1,
+      totals: {
+        includedCredits: 900,
+        additionalCredits: 100,
+        grossAmount: 10,
+        additionalUsage: 1,
+        pricePerCredit: 0.01
+      },
       models: [
         {
           model: "gpt-4.1",
@@ -40,10 +44,13 @@ const usage = {
     },
     {
       day: "2026-06-02",
-      includedCredits: 350,
-      additionalCredits: 220,
-      grossAmount: 5.7,
-      additionalUsage: 2.2,
+      totals: {
+        includedCredits: 350,
+        additionalCredits: 220,
+        grossAmount: 5.7,
+        additionalUsage: 2.2,
+        pricePerCredit: 0.01
+      },
       models: [
         {
           model: "claude-3.7-sonnet",
@@ -77,13 +84,14 @@ const usage = {
     cached: true,
     generatedAt: "2026-06-19T10:00:00Z"
   }
-};
+} satisfies MonthlyUsage;
 
 describe("UsageDashboard", () => {
   it("renders usage totals, daily rows, and model breakdown rows", () => {
     render(<UsageDashboard usage={usage} />);
 
     expect(screen.getByRole("heading", { name: /June 2026/i })).toBeInTheDocument();
+    expect(screen.getByText("@ana")).toBeInTheDocument();
     expect(screen.getByText("ana@company.name")).toBeInTheDocument();
     expect(screen.getByText("1,250")).toBeInTheDocument();
     expect(screen.getByText("320")).toBeInTheDocument();
@@ -93,8 +101,10 @@ describe("UsageDashboard", () => {
     const daily = screen.getByRole("region", { name: /daily usage/i });
     expect(within(daily).getByText("Jun 1")).toBeInTheDocument();
     expect(within(daily).getByText("1,000 credits")).toBeInTheDocument();
+    expect(within(daily).getByText("$1.00 additional usage")).toBeInTheDocument();
     expect(within(daily).getByText("Jun 2")).toBeInTheDocument();
     expect(within(daily).getByText("570 credits")).toBeInTheDocument();
+    expect(within(daily).getByText("$2.20 additional usage")).toBeInTheDocument();
 
     const table = screen.getByRole("table", { name: /model breakdown/i });
     expect(within(table).getByRole("row", { name: /gpt-4.1 700 80 \$7.80 \$0.80/i })).toBeInTheDocument();

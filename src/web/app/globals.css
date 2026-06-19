@@ -231,6 +231,12 @@ button {
   font-size: 0.78rem;
 }
 
+.daily-label em {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-style: normal;
+}
+
 .daily-label strong {
   font-size: 0.9rem;
   white-space: nowrap;

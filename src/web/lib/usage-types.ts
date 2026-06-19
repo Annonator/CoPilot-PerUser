@@ -12,8 +12,9 @@ export type ModelUsage = UsageTotals & {
 
 export type DailyModelUsage = Omit<ModelUsage, "pricePerCredit">;
 
-export type DailyUsage = UsageTotals & {
+export type DailyUsage = {
   day: string;
+  totals: UsageTotals;
   models?: DailyModelUsage[];
 };
 
@@ -25,7 +26,7 @@ export type MonthlyUsage = {
   };
   user: {
     email: string;
-    login?: string;
+    githubLogin?: string;
   };
   totals: UsageTotals;
   daily: DailyUsage[];

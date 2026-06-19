@@ -33,7 +33,7 @@ function periodLabel(usage: MonthlyUsage): string {
 }
 
 function dailyTotal(day: DailyUsage): number {
-  return day.includedCredits + day.additionalCredits;
+  return day.totals.includedCredits + day.totals.additionalCredits;
 }
 
 function maxDailyTotal(days: DailyUsage[]): number {
@@ -71,14 +71,15 @@ function DailyBars({ days }: { days: DailyUsage[] }) {
       </div>
       <div className="daily-bars">
         {days.map((day) => {
-          const includedWidth = `${Math.round((day.includedCredits / max) * 100)}%`;
-          const additionalWidth = `${Math.round((day.additionalCredits / max) * 100)}%`;
+          const includedWidth = `${Math.round((day.totals.includedCredits / max) * 100)}%`;
+          const additionalWidth = `${Math.round((day.totals.additionalCredits / max) * 100)}%`;
 
           return (
             <div className="daily-row" key={day.day}>
               <div className="daily-label">
                 <span>{formatDay(day.day)}</span>
                 <strong>{formatNumber(dailyTotal(day))} credits</strong>
+                <em>{formatMoney(day.totals.additionalUsage)} additional usage</em>
               </div>
               <div className="daily-track" aria-hidden="true">
                 <span className="daily-included" style={{ width: includedWidth }} />
@@ -152,7 +153,9 @@ export function UsageDashboard({ usage, error }: UsageDashboardProps) {
     <main className="dashboard-shell">
       <header className="dashboard-header">
         <div>
-          <p className="eyebrow">{usage.user.login ? `@${usage.user.login}` : usage.user.email}</p>
+          <p className="eyebrow">
+            {usage.user.githubLogin ? `@${usage.user.githubLogin}` : usage.user.email}
+          </p>
           <h1>{periodLabel(usage)}</h1>
           <p>{usage.user.email}</p>
         </div>

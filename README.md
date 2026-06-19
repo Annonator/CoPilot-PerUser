@@ -191,6 +191,19 @@ billing usage but not for identity lookup. If one `GITHUB_ADMIN_TOKEN` is used
 for both billing and identity resolution, it must satisfy both permission
 requirements.
 
+### Cache TTL
+
+The API caches GitHub billing usage responses and successful
+`email -> GitHub login` SAML identity lookups in memory for 10 minutes by
+default. Configure the shared TTL with Go duration syntax:
+
+```env
+USAGE_CACHE_TTL=10m
+```
+
+Examples: `5m`, `30m`, `1h`. Failed identity lookups are not cached, so fixed
+GitHub membership, SAML, or token configuration is retried on the next request.
+
 ## Host Development
 
 Run the API:

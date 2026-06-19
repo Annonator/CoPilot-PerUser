@@ -1,0 +1,19 @@
+.DS_Store
+
+# Local secrets
+.env
+.env.local
+.env.*.local
+
+# Node
+node_modules/
+.next/
+out/
+npm-debug.log*
+
+# Go
+bin/
+coverage.out
+
+# Docker and tooling
+.docker/

@@ -3,6 +3,7 @@ package usage
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -63,6 +64,9 @@ func NewService(config ServiceConfig) *Service {
 }
 
 func (s *Service) GetMonthlyUsage(ctx context.Context, email string, year, month int) (MonthlyUsage, error) {
+	if err := validatePeriod(year, month); err != nil {
+		return MonthlyUsage{}, err
+	}
 	if s.resolver == nil {
 		return MonthlyUsage{}, fmt.Errorf("usage resolver is required")
 	}
@@ -74,6 +78,10 @@ func (s *Service) GetMonthlyUsage(ctx context.Context, email string, year, month
 	if err != nil {
 		return MonthlyUsage{}, fmt.Errorf("resolve GitHub login: %w", err)
 	}
+	login = strings.TrimSpace(login)
+	if login == "" {
+		return MonthlyUsage{}, fmt.Errorf("empty GitHub login for authenticated user")
+	}
 
 	key := cacheKey{
 		enterprise: s.enterprise,
@@ -82,6 +90,7 @@ func (s *Service) GetMonthlyUsage(ctx context.Context, email string, year, month
 		month:      month,
 	}
 	if usage, ok := s.cached(key); ok {
+		usage.User.Email = email
 		usage.SourceMetadata.Cached = true
 		return usage, nil
 	}
@@ -140,7 +149,7 @@ func (s *Service) getDailyUsage(ctx context.Context, login string, year, month i
 		}
 		models := normalizeModels(report.UsageItems)
 		daily = append(daily, DailyUsage{
-			Day:    day,
+			Day:    dateString(year, month, day),
 			Models: models,
 			Totals: sumModels(models),
 		})
@@ -156,11 +165,22 @@ func (s *Service) daysToFetch(year, month int) int {
 	return daysInMonth(year, month)
 }
 
+func validatePeriod(year, month int) error {
+	if year < 2000 || month < 1 || month > 12 {
+		return fmt.Errorf("invalid period: year must be >= 2000 and month must be 1..12")
+	}
+	return nil
+}
+
 func daysInMonth(year, month int) int {
 	if month < 1 || month > 12 {
 		return 0
 	}
 	return time.Date(year, time.Month(month)+1, 0, 0, 0, 0, 0, time.UTC).Day()
+}
+
+func dateString(year, month, day int) string {
+	return time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC).Format("2006-01-02")
 }
 
 func (s *Service) cached(key cacheKey) (MonthlyUsage, bool) {

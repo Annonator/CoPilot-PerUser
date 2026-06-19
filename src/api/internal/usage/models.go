@@ -36,7 +36,7 @@ type ModelUsage struct {
 }
 
 type DailyUsage struct {
-	Day    int          `json:"day"`
+	Day    string       `json:"day"`
 	Models []ModelUsage `json:"models"`
 	Totals UsageTotals  `json:"totals"`
 }

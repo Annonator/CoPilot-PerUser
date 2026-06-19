@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -26,22 +27,24 @@ func TestLoadFromEnv(t *testing.T) {
 
 func TestLoadRequiresSecrets(t *testing.T) {
 	for _, key := range []string{
-		"PORT",
 		"COMPANY_EMAIL_DOMAINS",
 		"APP_TOKEN_SECRET",
-		"GITHUB_API_BASE_URL",
 		"GITHUB_ENTERPRISE_SLUG",
 		"GITHUB_ADMIN_TOKEN",
-		"GITHUB_IDENTITY_RESOLVER",
 		"GITHUB_IDENTITY_STATIC_MAP_PATH",
-		"USAGE_CACHE_TTL",
 	} {
-		t.Setenv(key, "")
-	}
+		t.Run(key, func(t *testing.T) {
+			setValidEnv(t)
+			t.Setenv(key, "")
 
-	_, err := Load()
-	if err == nil {
-		t.Fatal("Load() error = nil, want missing required config")
+			_, err := Load()
+			if err == nil {
+				t.Fatal("Load() error = nil, want missing required config")
+			}
+			if !strings.Contains(err.Error(), key) {
+				t.Fatalf("Load() error = %q, want it to contain %q", err.Error(), key)
+			}
+		})
 	}
 }
 

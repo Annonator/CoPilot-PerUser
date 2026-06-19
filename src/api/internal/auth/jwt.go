@@ -83,11 +83,14 @@ func (m Manager) Validate(authorization string) (Claims, error) {
 }
 
 func AllowedDomain(email string, domains []string) bool {
+	if email != strings.TrimSpace(email) {
+		return false
+	}
 	if strings.Count(email, "@") != 1 {
 		return false
 	}
 	at := strings.Index(email, "@")
-	if at < 0 {
+	if at <= 0 || at == len(email)-1 {
 		return false
 	}
 	domain := strings.ToLower(email[at+1:])

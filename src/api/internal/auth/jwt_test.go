@@ -145,4 +145,10 @@ func TestAllowedDomain(t *testing.T) {
 	if AllowedDomain("user@other.test@company.name", []string{"company.name"}) {
 		t.Fatal("AllowedDomain returned true for malformed email")
 	}
+	if AllowedDomain("@company.name", []string{"company.name"}) {
+		t.Fatal("AllowedDomain returned true for empty local part")
+	}
+	if AllowedDomain(" user@company.name ", []string{"company.name"}) {
+		t.Fatal("AllowedDomain returned true for whitespace-wrapped email")
+	}
 }

@@ -37,6 +37,9 @@ func Load() (Config, error) {
 		if err != nil {
 			return Config{}, fmt.Errorf("parse USAGE_CACHE_TTL: %w", err)
 		}
+		if ttl <= 0 {
+			return Config{}, fmt.Errorf("USAGE_CACHE_TTL must be positive")
+		}
 		cfg.UsageCacheTTL = ttl
 	}
 

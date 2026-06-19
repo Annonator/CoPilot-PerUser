@@ -47,6 +47,20 @@ func (m Manager) Validate(authorization string) (Claims, error) {
 	if len(parts) != 3 {
 		return Claims{}, errors.New("invalid token format")
 	}
+	var header struct {
+		Alg string `json:"alg"`
+		Typ string `json:"typ"`
+	}
+	headerData, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return Claims{}, fmt.Errorf("decode header: %w", err)
+	}
+	if err := json.Unmarshal(headerData, &header); err != nil {
+		return Claims{}, fmt.Errorf("unmarshal header: %w", err)
+	}
+	if header.Alg != "HS256" || header.Typ != "JWT" {
+		return Claims{}, errors.New("invalid token header")
+	}
 	signingInput := parts[0] + "." + parts[1]
 	if !hmac.Equal([]byte(parts[2]), []byte(m.signature(signingInput))) {
 		return Claims{}, errors.New("invalid token signature")
@@ -69,7 +83,10 @@ func (m Manager) Validate(authorization string) (Claims, error) {
 }
 
 func AllowedDomain(email string, domains []string) bool {
-	at := strings.LastIndex(email, "@")
+	if strings.Count(email, "@") != 1 {
+		return false
+	}
+	at := strings.Index(email, "@")
 	if at < 0 {
 		return false
 	}

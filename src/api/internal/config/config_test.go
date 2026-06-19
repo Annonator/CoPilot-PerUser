@@ -3,14 +3,7 @@ package config
 import "testing"
 
 func TestLoadFromEnv(t *testing.T) {
-	t.Setenv("PORT", "9090")
-	t.Setenv("COMPANY_EMAIL_DOMAINS", "company.name,example.com")
-	t.Setenv("APP_TOKEN_SECRET", "secret")
-	t.Setenv("GITHUB_API_BASE_URL", "https://api.github.com")
-	t.Setenv("GITHUB_ENTERPRISE_SLUG", "marbis")
-	t.Setenv("GITHUB_ADMIN_TOKEN", "ghp_secret")
-	t.Setenv("GITHUB_IDENTITY_RESOLVER", "static")
-	t.Setenv("GITHUB_IDENTITY_STATIC_MAP_PATH", "internal/testfixtures/identity-map.json")
+	setValidEnv(t)
 	t.Setenv("USAGE_CACHE_TTL", "5m")
 
 	cfg, err := Load()
@@ -29,8 +22,49 @@ func TestLoadFromEnv(t *testing.T) {
 }
 
 func TestLoadRequiresSecrets(t *testing.T) {
+	for _, key := range []string{
+		"PORT",
+		"COMPANY_EMAIL_DOMAINS",
+		"APP_TOKEN_SECRET",
+		"GITHUB_API_BASE_URL",
+		"GITHUB_ENTERPRISE_SLUG",
+		"GITHUB_ADMIN_TOKEN",
+		"GITHUB_IDENTITY_RESOLVER",
+		"GITHUB_IDENTITY_STATIC_MAP_PATH",
+		"USAGE_CACHE_TTL",
+	} {
+		t.Setenv(key, "")
+	}
+
 	_, err := Load()
 	if err == nil {
 		t.Fatal("Load() error = nil, want missing required config")
 	}
+}
+
+func TestLoadRejectsNonPositiveUsageCacheTTL(t *testing.T) {
+	for _, ttl := range []string{"0s", "-1m"} {
+		t.Run(ttl, func(t *testing.T) {
+			setValidEnv(t)
+			t.Setenv("USAGE_CACHE_TTL", ttl)
+
+			_, err := Load()
+			if err == nil {
+				t.Fatal("Load() error = nil, want non-positive USAGE_CACHE_TTL error")
+			}
+		})
+	}
+}
+
+func setValidEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("PORT", "9090")
+	t.Setenv("COMPANY_EMAIL_DOMAINS", "company.name,example.com")
+	t.Setenv("APP_TOKEN_SECRET", "secret")
+	t.Setenv("GITHUB_API_BASE_URL", "https://api.github.com")
+	t.Setenv("GITHUB_ENTERPRISE_SLUG", "marbis")
+	t.Setenv("GITHUB_ADMIN_TOKEN", "ghp_secret")
+	t.Setenv("GITHUB_IDENTITY_RESOLVER", "static")
+	t.Setenv("GITHUB_IDENTITY_STATIC_MAP_PATH", "internal/testfixtures/identity-map.json")
+	t.Setenv("USAGE_CACHE_TTL", "")
 }

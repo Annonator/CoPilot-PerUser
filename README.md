@@ -57,3 +57,15 @@ docker compose up --build
 ```
 
 The web service runs on `http://localhost:3000`. The API service runs on `http://localhost:8080`.
+
+Validate the API from the host:
+
+```bash
+curl http://localhost:8080/healthz
+```
+
+Expected response:
+
+```json
+{"status":"ok"}
+```

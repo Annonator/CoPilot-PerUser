@@ -16,6 +16,12 @@ services:
       - "8080:8080"
     volumes:
       - ./src/api/internal/testfixtures/identity-map.json:/app/config/identity-map.json:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 5s
 
   web:
     build:
@@ -31,4 +37,5 @@ services:
     ports:
       - "3000:3000"
     depends_on:
-      - api
+      api:
+        condition: service_healthy

@@ -1,0 +1,32 @@
+{
+  "timePeriod": { "year": 2026, "month": 6 },
+  "enterprise": "marbis",
+  "usageItems": [
+    {
+      "product": "Copilot",
+      "sku": "Copilot AI Credits",
+      "model": "GPT-5.5",
+      "unitType": "credits",
+      "pricePerUnit": 0.01,
+      "grossQuantity": 18720.89,
+      "grossAmount": 187.21,
+      "discountQuantity": 16585.58,
+      "discountAmount": 165.86,
+      "netQuantity": 2135.31,
+      "netAmount": 21.35
+    },
+    {
+      "product": "Copilot",
+      "sku": "Copilot AI Credits",
+      "model": "Claude Opus 4.6",
+      "unitType": "credits",
+      "pricePerUnit": 0.01,
+      "grossQuantity": 2979.78,
+      "grossAmount": 29.80,
+      "discountQuantity": 411.39,
+      "discountAmount": 4.11,
+      "netQuantity": 2568.39,
+      "netAmount": 25.68
+    }
+  ]
+}

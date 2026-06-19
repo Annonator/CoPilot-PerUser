@@ -16,6 +16,7 @@ type Config struct {
 	GitHubAdminToken            string
 	GitHubIdentityResolver      string
 	GitHubIdentityStaticMapPath string
+	GitHubBillingFixturePath    string
 	UsageCacheTTL               time.Duration
 }
 
@@ -29,6 +30,7 @@ func Load() (Config, error) {
 		GitHubAdminToken:            os.Getenv("GITHUB_ADMIN_TOKEN"),
 		GitHubIdentityResolver:      strings.ToLower(strings.TrimSpace(envDefault("GITHUB_IDENTITY_RESOLVER", "static"))),
 		GitHubIdentityStaticMapPath: os.Getenv("GITHUB_IDENTITY_STATIC_MAP_PATH"),
+		GitHubBillingFixturePath:    os.Getenv("GITHUB_BILLING_FIXTURE_PATH"),
 		UsageCacheTTL:               10 * time.Minute,
 	}
 
@@ -52,8 +54,11 @@ func Load() (Config, error) {
 	if cfg.GitHubEnterpriseSlug == "" {
 		return Config{}, fmt.Errorf("GITHUB_ENTERPRISE_SLUG is required")
 	}
-	if cfg.GitHubAdminToken == "" {
+	if cfg.GitHubAdminToken == "" && cfg.GitHubBillingFixturePath == "" {
 		return Config{}, fmt.Errorf("GITHUB_ADMIN_TOKEN is required")
+	}
+	if cfg.GitHubBillingFixturePath != "" && os.Getenv("NODE_ENV") == "production" {
+		return Config{}, fmt.Errorf("GITHUB_BILLING_FIXTURE_PATH is not allowed when NODE_ENV=production")
 	}
 	if cfg.GitHubIdentityResolver != "static" {
 		return Config{}, fmt.Errorf("GITHUB_IDENTITY_RESOLVER %q is unsupported; only static is supported", cfg.GitHubIdentityResolver)

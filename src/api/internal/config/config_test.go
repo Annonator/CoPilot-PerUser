@@ -9,6 +9,7 @@ import (
 func TestLoadFromEnv(t *testing.T) {
 	setValidEnv(t)
 	t.Setenv("USAGE_CACHE_TTL", "5m")
+	t.Setenv("GITHUB_BILLING_FIXTURE_PATH", "internal/testfixtures/ai-credit-usage.json")
 
 	cfg, err := Load()
 	if err != nil {
@@ -22,6 +23,9 @@ func TestLoadFromEnv(t *testing.T) {
 	}
 	if cfg.UsageCacheTTL.String() != "5m0s" {
 		t.Fatalf("UsageCacheTTL = %s", cfg.UsageCacheTTL)
+	}
+	if cfg.GitHubBillingFixturePath != "internal/testfixtures/ai-credit-usage.json" {
+		t.Fatalf("GitHubBillingFixturePath = %q", cfg.GitHubBillingFixturePath)
 	}
 }
 
@@ -45,6 +49,20 @@ func TestLoadRequiresSecrets(t *testing.T) {
 				t.Fatalf("Load() error = %q, want it to contain %q", err.Error(), key)
 			}
 		})
+	}
+}
+
+func TestLoadDoesNotRequireGitHubAdminTokenForFixtureBilling(t *testing.T) {
+	setValidEnv(t)
+	t.Setenv("GITHUB_ADMIN_TOKEN", "")
+	t.Setenv("GITHUB_BILLING_FIXTURE_PATH", "internal/testfixtures/ai-credit-usage.json")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.GitHubAdminToken != "" {
+		t.Fatalf("GitHubAdminToken = %q, want empty", cfg.GitHubAdminToken)
 	}
 }
 
@@ -108,6 +126,20 @@ func TestLoadRejectsUnsupportedIdentityResolver(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "static") {
 		t.Fatalf("Load() error = %q, want supported resolver context", err.Error())
+	}
+}
+
+func TestLoadRejectsBillingFixtureInProduction(t *testing.T) {
+	setValidEnv(t)
+	t.Setenv("NODE_ENV", "production")
+	t.Setenv("GITHUB_BILLING_FIXTURE_PATH", "internal/testfixtures/ai-credit-usage.json")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("Load() error = nil, want production fixture rejection")
+	}
+	if !strings.Contains(err.Error(), "GITHUB_BILLING_FIXTURE_PATH") {
+		t.Fatalf("Load() error = %q, want GITHUB_BILLING_FIXTURE_PATH context", err.Error())
 	}
 }
 

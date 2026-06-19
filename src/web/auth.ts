@@ -8,8 +8,9 @@ import {
   isAllowedCompanyEmail,
   isVerifiedAllowedCompanyEmail
 } from "@/lib/company-email";
+import { devSessionFromEnv } from "@/lib/dev-session";
 
-export const { handlers, auth, signIn, signOut } = NextAuth({
+const nextAuth = NextAuth({
   secret: process.env.AUTH_SECRET,
   trustHost: true,
   providers: [
@@ -29,6 +30,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }
   }
 });
+
+export const { handlers, signIn, signOut } = nextAuth;
+
+export async function auth() {
+  return devSessionFromEnv() ?? nextAuth.auth();
+}
 
 function hostedDomainHint(): string | undefined {
   return firstConfiguredCompanyDomain();

@@ -23,7 +23,12 @@ func main() {
 		log.Fatalf("create static identity resolver: %v", err)
 	}
 
-	billingClient := gh.NewBillingClient(cfg.GitHubAPIBaseURL, cfg.GitHubAdminToken, http.DefaultClient)
+	var billingClient usage.BillingClient
+	if cfg.GitHubBillingFixturePath != "" {
+		billingClient = gh.NewFixtureBillingClient(cfg.GitHubBillingFixturePath)
+	} else {
+		billingClient = gh.NewBillingClient(cfg.GitHubAPIBaseURL, cfg.GitHubAdminToken, http.DefaultClient)
+	}
 	usageService := usage.NewService(usage.ServiceConfig{
 		Enterprise: cfg.GitHubEnterpriseSlug,
 		Resolver:   resolver,

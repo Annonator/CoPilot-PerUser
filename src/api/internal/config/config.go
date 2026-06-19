@@ -27,7 +27,7 @@ func Load() (Config, error) {
 		GitHubAPIBaseURL:            envDefault("GITHUB_API_BASE_URL", "https://api.github.com"),
 		GitHubEnterpriseSlug:        os.Getenv("GITHUB_ENTERPRISE_SLUG"),
 		GitHubAdminToken:            os.Getenv("GITHUB_ADMIN_TOKEN"),
-		GitHubIdentityResolver:      envDefault("GITHUB_IDENTITY_RESOLVER", "static"),
+		GitHubIdentityResolver:      strings.ToLower(strings.TrimSpace(envDefault("GITHUB_IDENTITY_RESOLVER", "static"))),
 		GitHubIdentityStaticMapPath: os.Getenv("GITHUB_IDENTITY_STATIC_MAP_PATH"),
 		UsageCacheTTL:               10 * time.Minute,
 	}
@@ -54,6 +54,9 @@ func Load() (Config, error) {
 	}
 	if cfg.GitHubAdminToken == "" {
 		return Config{}, fmt.Errorf("GITHUB_ADMIN_TOKEN is required")
+	}
+	if cfg.GitHubIdentityResolver != "static" {
+		return Config{}, fmt.Errorf("GITHUB_IDENTITY_RESOLVER %q is unsupported; only static is supported", cfg.GitHubIdentityResolver)
 	}
 	if cfg.GitHubIdentityResolver == "static" && cfg.GitHubIdentityStaticMapPath == "" {
 		return Config{}, fmt.Errorf("GITHUB_IDENTITY_STATIC_MAP_PATH is required for static resolver")

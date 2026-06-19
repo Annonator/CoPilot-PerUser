@@ -182,6 +182,7 @@ func TestUsageRejectsBadPeriod(t *testing.T) {
 	}{
 		{name: "bad year", path: "/v1/usage?year=bad&month=6"},
 		{name: "bad month", path: "/v1/usage?year=2026&month=13"},
+		{name: "future period", path: "/v1/usage?year=2026&month=7"},
 		{name: "missing year", path: "/v1/usage?month=6"},
 		{name: "missing month", path: "/v1/usage?year=2026"},
 	}
@@ -267,6 +268,7 @@ func testServerConfig(usageService UsageService) ServerConfig {
 		},
 		CompanyEmailDomains: []string{"nitrado.net"},
 		Usage:               usageService,
+		Now:                 testNow,
 	}
 }
 

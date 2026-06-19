@@ -95,6 +95,22 @@ func TestLoadRejectsNonPositiveUsageCacheTTL(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsUnsupportedIdentityResolver(t *testing.T) {
+	setValidEnv(t)
+	t.Setenv("GITHUB_IDENTITY_RESOLVER", "saml")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("Load() error = nil, want unsupported resolver error")
+	}
+	if !strings.Contains(err.Error(), "GITHUB_IDENTITY_RESOLVER") {
+		t.Fatalf("Load() error = %q, want GITHUB_IDENTITY_RESOLVER context", err.Error())
+	}
+	if !strings.Contains(err.Error(), "static") {
+		t.Fatalf("Load() error = %q, want supported resolver context", err.Error())
+	}
+}
+
 func setValidEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("PORT", "9090")

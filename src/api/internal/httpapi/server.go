@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"time"
 
 	"copilot-per-user/api/internal/auth"
 	"copilot-per-user/api/internal/usage"
@@ -18,6 +19,7 @@ type ServerConfig struct {
 	Auth                auth.Manager
 	CompanyEmailDomains []string
 	Usage               UsageService
+	Now                 func() time.Time
 }
 
 type Server struct {
@@ -25,6 +27,7 @@ type Server struct {
 	auth                auth.Manager
 	companyEmailDomains []string
 	usage               UsageService
+	now                 func() time.Time
 }
 
 func NewServer(cfg ServerConfig) *Server {
@@ -33,6 +36,10 @@ func NewServer(cfg ServerConfig) *Server {
 		auth:                cfg.Auth,
 		companyEmailDomains: append([]string(nil), cfg.CompanyEmailDomains...),
 		usage:               cfg.Usage,
+		now:                 cfg.Now,
+	}
+	if server.now == nil {
+		server.now = time.Now
 	}
 	server.mux.HandleFunc("/healthz", server.handleHealthz)
 	server.mux.HandleFunc("/v1/me", server.handleMe)
@@ -77,7 +84,7 @@ func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	year, month, ok := parsePeriod(r)
+	year, month, ok := parsePeriod(r, s.now())
 	if !ok {
 		writeError(w, http.StatusBadRequest, "bad_request")
 		return
@@ -104,7 +111,7 @@ func (s *Server) authenticate(w http.ResponseWriter, r *http.Request) (auth.Clai
 	return claims, true
 }
 
-func parsePeriod(r *http.Request) (int, int, bool) {
+func parsePeriod(r *http.Request, now time.Time) (int, int, bool) {
 	query := r.URL.Query()
 	year, err := strconv.Atoi(query.Get("year"))
 	if err != nil || year < 2000 {
@@ -112,6 +119,10 @@ func parsePeriod(r *http.Request) (int, int, bool) {
 	}
 	month, err := strconv.Atoi(query.Get("month"))
 	if err != nil || month < 1 || month > 12 {
+		return 0, 0, false
+	}
+	now = now.UTC()
+	if year > now.Year() || (year == now.Year() && month > int(now.Month())) {
 		return 0, 0, false
 	}
 	return year, month, true

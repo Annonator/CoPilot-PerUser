@@ -8,8 +8,7 @@ import type { MonthlyUsage } from "@/lib/usage-types";
 const usage = {
   period: {
     year: 2026,
-    month: 6,
-    label: "June 2026"
+    month: 6
   },
   user: {
     email: "ana@company.name",
@@ -19,8 +18,7 @@ const usage = {
     includedCredits: 1250,
     additionalCredits: 320,
     grossAmount: 15.7,
-    additionalUsage: 3.2,
-    pricePerCredit: 0.01
+    additionalUsage: 3.2
   },
   daily: [
     {
@@ -29,8 +27,7 @@ const usage = {
         includedCredits: 900,
         additionalCredits: 100,
         grossAmount: 10,
-        additionalUsage: 1,
-        pricePerCredit: 0.01
+        additionalUsage: 1
       },
       models: [
         {
@@ -38,7 +35,8 @@ const usage = {
           includedCredits: 500,
           additionalCredits: 40,
           grossAmount: 5.4,
-          additionalUsage: 0.4
+          additionalUsage: 0.4,
+          pricePerCredit: 0.01
         }
       ]
     },
@@ -48,8 +46,7 @@ const usage = {
         includedCredits: 350,
         additionalCredits: 220,
         grossAmount: 5.7,
-        additionalUsage: 2.2,
-        pricePerCredit: 0.01
+        additionalUsage: 2.2
       },
       models: [
         {
@@ -57,7 +54,8 @@ const usage = {
           includedCredits: 300,
           additionalCredits: 180,
           grossAmount: 4.8,
-          additionalUsage: 1.8
+          additionalUsage: 1.8,
+          pricePerCredit: 0.01
         }
       ]
     }
@@ -81,8 +79,9 @@ const usage = {
     }
   ],
   sourceMetadata: {
-    cached: true,
-    generatedAt: "2026-06-19T10:00:00Z"
+    enterprise: "marbis",
+    source: "github_enterprise_billing_ai_credit_usage",
+    cached: true
   }
 } satisfies MonthlyUsage;
 
@@ -90,13 +89,14 @@ describe("UsageDashboard", () => {
   it("renders usage totals, daily rows, and model breakdown rows", () => {
     render(<UsageDashboard usage={usage} />);
 
-    expect(screen.getByRole("heading", { name: /June 2026/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "2026-06" })).toBeInTheDocument();
     expect(screen.getByText("@ana")).toBeInTheDocument();
     expect(screen.getByText("ana@company.name")).toBeInTheDocument();
     expect(screen.getByText("1,250")).toBeInTheDocument();
     expect(screen.getByText("320")).toBeInTheDocument();
     expect(screen.getByText("$15.70")).toBeInTheDocument();
     expect(screen.getByText("$3.20")).toBeInTheDocument();
+    expect(screen.queryByText("Price per credit $0.00")).not.toBeInTheDocument();
 
     const daily = screen.getByRole("region", { name: /daily usage/i });
     expect(within(daily).getByText("Jun 1")).toBeInTheDocument();
@@ -107,7 +107,8 @@ describe("UsageDashboard", () => {
     expect(within(daily).getByText("$2.20 additional usage")).toBeInTheDocument();
 
     const table = screen.getByRole("table", { name: /model breakdown/i });
-    expect(within(table).getByRole("row", { name: /gpt-4.1 700 80 \$7.80 \$0.80/i })).toBeInTheDocument();
-    expect(within(table).getByRole("row", { name: /claude-3.7-sonnet 550 240 \$7.90 \$2.40/i })).toBeInTheDocument();
+    expect(within(table).getByRole("columnheader", { name: /price per credit/i })).toBeInTheDocument();
+    expect(within(table).getByRole("row", { name: /gpt-4.1 700 80 \$7.80 \$0.80 \$0.01/i })).toBeInTheDocument();
+    expect(within(table).getByRole("row", { name: /claude-3.7-sonnet 550 240 \$7.90 \$2.40 \$0.01/i })).toBeInTheDocument();
   });
 });

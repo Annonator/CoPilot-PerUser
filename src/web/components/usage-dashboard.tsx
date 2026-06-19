@@ -29,7 +29,7 @@ function formatDay(day: string): string {
 }
 
 function periodLabel(usage: MonthlyUsage): string {
-  return usage.period.label ?? `${usage.period.year}-${String(usage.period.month).padStart(2, "0")}`;
+  return `${usage.period.year}-${String(usage.period.month).padStart(2, "0")}`;
 }
 
 function dailyTotal(day: DailyUsage): number {
@@ -111,6 +111,7 @@ function ModelBreakdown({ models }: { models: ModelUsage[] }) {
               <th>Additional credits</th>
               <th>Gross amount</th>
               <th>Additional usage</th>
+              <th>Price per credit</th>
             </tr>
           </thead>
           <tbody>
@@ -121,6 +122,7 @@ function ModelBreakdown({ models }: { models: ModelUsage[] }) {
                 <td>{formatNumber(model.additionalCredits)}</td>
                 <td>{formatMoney(model.grossAmount)}</td>
                 <td>{formatMoney(model.additionalUsage)}</td>
+                <td>{formatMoney(model.pricePerCredit)}</td>
               </tr>
             ))}
           </tbody>
@@ -175,7 +177,7 @@ export function UsageDashboard({ usage, error }: UsageDashboardProps) {
         <MetricCard
           label="Gross amount"
           value={formatMoney(usage.totals.grossAmount)}
-          detail={`Price per credit ${formatMoney(usage.totals.pricePerCredit ?? 0)}`}
+          detail="Gross amount"
         />
         <MetricCard
           label="Additional usage"

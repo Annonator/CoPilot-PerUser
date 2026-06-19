@@ -111,4 +111,14 @@ describe("UsageDashboard", () => {
     expect(within(table).getByRole("row", { name: /gpt-4.1 700 80 \$7.80 \$0.80 \$0.01/i })).toBeInTheDocument();
     expect(within(table).getByRole("row", { name: /claude-3.7-sonnet 550 240 \$7.90 \$2.40 \$0.01/i })).toBeInTheDocument();
   });
+
+  it("renders partial empty states for missing daily or model usage", () => {
+    render(<UsageDashboard usage={{ ...usage, daily: [], models: [] }} />);
+
+    const daily = screen.getByRole("region", { name: /daily usage/i });
+    expect(within(daily).getByText("No daily usage")).toBeInTheDocument();
+
+    const table = screen.getByRole("table", { name: /model breakdown/i });
+    expect(within(table).getByText("No model usage")).toBeInTheDocument();
+  });
 });

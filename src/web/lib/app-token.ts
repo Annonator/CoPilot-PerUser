@@ -1,3 +1,5 @@
+import "server-only";
+
 import { SignJWT } from "jose";
 
 type AppTokenSubject = {

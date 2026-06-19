@@ -1,29 +1,9 @@
+import "server-only";
+
 import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
 
-function configuredDomains(): string[] {
-  return (process.env.COMPANY_EMAIL_DOMAINS ?? "")
-    .split(",")
-    .map((domain) => domain.trim().toLowerCase())
-    .filter(Boolean);
-}
-
-function emailDomain(email: string): string {
-  return email.toLowerCase().split("@").at(1) ?? "";
-}
-
-export function isAllowedCompanyEmail(email: string | null | undefined): boolean {
-  if (!email) {
-    return false;
-  }
-
-  const domains = configuredDomains();
-  return domains.length > 0 && domains.includes(emailDomain(email));
-}
-
-function hostedDomainHint(): string | undefined {
-  return configuredDomains()[0];
-}
+import { firstConfiguredCompanyDomain, isAllowedCompanyEmail } from "@/lib/company-email";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   secret: process.env.AUTH_SECRET,
@@ -45,3 +25,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }
   }
 });
+
+function hostedDomainHint(): string | undefined {
+  return firstConfiguredCompanyDomain();
+}
+
+export { isAllowedCompanyEmail };

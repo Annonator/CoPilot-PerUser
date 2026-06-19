@@ -70,24 +70,28 @@ function DailyBars({ days }: { days: DailyUsage[] }) {
         </div>
       </div>
       <div className="daily-bars">
-        {days.map((day) => {
-          const includedWidth = `${Math.round((day.totals.includedCredits / max) * 100)}%`;
-          const additionalWidth = `${Math.round((day.totals.additionalCredits / max) * 100)}%`;
+        {days.length === 0 ? (
+          <div className="empty-row">No daily usage</div>
+        ) : (
+          days.map((day) => {
+            const includedWidth = `${Math.round((day.totals.includedCredits / max) * 100)}%`;
+            const additionalWidth = `${Math.round((day.totals.additionalCredits / max) * 100)}%`;
 
-          return (
-            <div className="daily-row" key={day.day}>
-              <div className="daily-label">
-                <span>{formatDay(day.day)}</span>
-                <strong>{formatNumber(dailyTotal(day))} credits</strong>
-                <em>{formatMoney(day.totals.additionalUsage)} additional usage</em>
+            return (
+              <div className="daily-row" key={day.day}>
+                <div className="daily-label">
+                  <span>{formatDay(day.day)}</span>
+                  <strong>{formatNumber(dailyTotal(day))} credits</strong>
+                  <em>{formatMoney(day.totals.additionalUsage)} additional usage</em>
+                </div>
+                <div className="daily-track" aria-hidden="true">
+                  <span className="daily-included" style={{ width: includedWidth }} />
+                  <span className="daily-additional" style={{ width: additionalWidth }} />
+                </div>
               </div>
-              <div className="daily-track" aria-hidden="true">
-                <span className="daily-included" style={{ width: includedWidth }} />
-                <span className="daily-additional" style={{ width: additionalWidth }} />
-              </div>
-            </div>
-          );
-        })}
+            );
+          })
+        )}
       </div>
     </section>
   );
@@ -115,16 +119,22 @@ function ModelBreakdown({ models }: { models: ModelUsage[] }) {
             </tr>
           </thead>
           <tbody>
-            {models.map((model) => (
-              <tr key={model.model}>
-                <th scope="row">{model.model}</th>
-                <td>{formatNumber(model.includedCredits)}</td>
-                <td>{formatNumber(model.additionalCredits)}</td>
-                <td>{formatMoney(model.grossAmount)}</td>
-                <td>{formatMoney(model.additionalUsage)}</td>
-                <td>{formatMoney(model.pricePerCredit)}</td>
+            {models.length === 0 ? (
+              <tr>
+                <td colSpan={6}>No model usage</td>
               </tr>
-            ))}
+            ) : (
+              models.map((model) => (
+                <tr key={model.model}>
+                  <th scope="row">{model.model}</th>
+                  <td>{formatNumber(model.includedCredits)}</td>
+                  <td>{formatNumber(model.additionalCredits)}</td>
+                  <td>{formatMoney(model.grossAmount)}</td>
+                  <td>{formatMoney(model.additionalUsage)}</td>
+                  <td>{formatMoney(model.pricePerCredit)}</td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>
@@ -142,7 +152,7 @@ export function UsageDashboard({ usage, error }: UsageDashboardProps) {
     );
   }
 
-  if (!usage || (usage.daily.length === 0 && usage.models.length === 0)) {
+  if (!usage) {
     return (
       <section className="state-panel">
         <h1>No usage found</h1>

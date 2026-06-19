@@ -213,6 +213,14 @@ button {
   padding: 1rem;
 }
 
+.empty-row {
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  color: var(--muted);
+  padding: 1rem;
+  text-align: center;
+}
+
 .daily-row {
   display: grid;
   grid-template-columns: minmax(7.5rem, 0.35fr) minmax(0, 1fr);

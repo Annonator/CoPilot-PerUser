@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { MonthlyUsage } from "./usage-types";
 
 type GetUsageInput = {
@@ -5,6 +7,13 @@ type GetUsageInput = {
   year: number;
   month: number;
 };
+
+export class UsageApiError extends Error {
+  constructor(readonly status: number) {
+    super("Usage API request failed.");
+    this.name = "UsageApiError";
+  }
+}
 
 export async function getMonthlyUsage({ token, year, month }: GetUsageInput): Promise<MonthlyUsage> {
   const baseUrl = process.env.API_BASE_URL;
@@ -25,8 +34,7 @@ export async function getMonthlyUsage({ token, year, month }: GetUsageInput): Pr
   });
 
   if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(detail || `Usage API returned ${response.status}`);
+    throw new UsageApiError(response.status);
   }
 
   return response.json() as Promise<MonthlyUsage>;

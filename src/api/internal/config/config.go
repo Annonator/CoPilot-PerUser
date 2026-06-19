@@ -54,14 +54,14 @@ func Load() (Config, error) {
 	if cfg.GitHubEnterpriseSlug == "" {
 		return Config{}, fmt.Errorf("GITHUB_ENTERPRISE_SLUG is required")
 	}
-	if cfg.GitHubAdminToken == "" && cfg.GitHubBillingFixturePath == "" {
+	if cfg.GitHubAdminToken == "" && (cfg.GitHubBillingFixturePath == "" || cfg.GitHubIdentityResolver == "github_saml") {
 		return Config{}, fmt.Errorf("GITHUB_ADMIN_TOKEN is required")
 	}
 	if cfg.GitHubBillingFixturePath != "" && os.Getenv("NODE_ENV") == "production" {
 		return Config{}, fmt.Errorf("GITHUB_BILLING_FIXTURE_PATH is not allowed when NODE_ENV=production")
 	}
-	if cfg.GitHubIdentityResolver != "static" {
-		return Config{}, fmt.Errorf("GITHUB_IDENTITY_RESOLVER %q is unsupported; only static is supported", cfg.GitHubIdentityResolver)
+	if cfg.GitHubIdentityResolver != "static" && cfg.GitHubIdentityResolver != "github_saml" {
+		return Config{}, fmt.Errorf("GITHUB_IDENTITY_RESOLVER %q is unsupported; supported values are static and github_saml", cfg.GitHubIdentityResolver)
 	}
 	if cfg.GitHubIdentityResolver == "static" && cfg.GitHubIdentityStaticMapPath == "" {
 		return Config{}, fmt.Errorf("GITHUB_IDENTITY_STATIC_MAP_PATH is required for static resolver")

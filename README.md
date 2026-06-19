@@ -123,6 +123,11 @@ The API service calls GitHub Enterprise billing endpoints server-side. Use a
 GitHub credential with enterprise admin or billing-manager access, and never
 expose it to `src/web`.
 
+GitHub Enterprise billing usage endpoints require an enterprise admin or
+billing-manager credential. Enterprise-scope billing endpoints are documented as
+not supporting GitHub App tokens, GitHub App installation tokens, or fine-grained
+personal access tokens.
+
 ```env
 GITHUB_API_BASE_URL=https://api.github.com
 GITHUB_ENTERPRISE_SLUG=your-enterprise-slug
@@ -149,9 +154,10 @@ APP_TOKEN_SECRET=replace-with-another-long-random-secret
 ### GitHub Identity Mapping
 
 The app must map each authenticated company email address to a GitHub login
-before it can request self-only billing usage. The current implementation
-requires the static resolver because no live SAML identity resolver is wired yet.
-Configure it with:
+before it can request self-only billing usage.
+
+For local development, fixtures, or manually maintained mappings, use the
+static resolver:
 
 ```env
 GITHUB_IDENTITY_RESOLVER=static
@@ -168,6 +174,22 @@ The map file should contain lower-case email keys and GitHub login values:
 
 In Docker Compose, the static map is mounted into the API container at
 `/app/config/identity-map.json`.
+
+For production enterprise-level SAML lookup, use the live resolver:
+
+```env
+GITHUB_IDENTITY_RESOLVER=github_saml
+GITHUB_ADMIN_TOKEN=enterprise-owner-classic-pat
+```
+
+The `github_saml` resolver maps the Google email to the GitHub login through
+the enterprise-level SAML `NameID`. It requires a credential that can read
+enterprise owner information and SAML identity provider data. Use an
+enterprise-owner classic personal access token with `read:enterprise` or
+`admin:enterprise`. A billing-manager-only credential may be sufficient for
+billing usage but not for identity lookup. If one `GITHUB_ADMIN_TOKEN` is used
+for both billing and identity resolution, it must satisfy both permission
+requirements.
 
 ## Host Development
 

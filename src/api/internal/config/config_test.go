@@ -66,6 +66,48 @@ func TestLoadDoesNotRequireGitHubAdminTokenForFixtureBilling(t *testing.T) {
 	}
 }
 
+func TestLoadAcceptsGitHubSAMLIdentityResolver(t *testing.T) {
+	setValidEnv(t)
+	t.Setenv("GITHUB_IDENTITY_RESOLVER", "github_saml")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.GitHubIdentityResolver != "github_saml" {
+		t.Fatalf("GitHubIdentityResolver = %q", cfg.GitHubIdentityResolver)
+	}
+}
+
+func TestLoadDoesNotRequireStaticMapForGitHubSAMLResolver(t *testing.T) {
+	setValidEnv(t)
+	t.Setenv("GITHUB_IDENTITY_RESOLVER", "github_saml")
+	t.Setenv("GITHUB_IDENTITY_STATIC_MAP_PATH", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.GitHubIdentityStaticMapPath != "" {
+		t.Fatalf("GitHubIdentityStaticMapPath = %q, want empty", cfg.GitHubIdentityStaticMapPath)
+	}
+}
+
+func TestLoadRequiresGitHubAdminTokenForGitHubSAMLResolver(t *testing.T) {
+	setValidEnv(t)
+	t.Setenv("GITHUB_IDENTITY_RESOLVER", "github_saml")
+	t.Setenv("GITHUB_ADMIN_TOKEN", "")
+	t.Setenv("GITHUB_BILLING_FIXTURE_PATH", "internal/testfixtures/ai-credit-usage.json")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("Load() error = nil, want missing GITHUB_ADMIN_TOKEN")
+	}
+	if !strings.Contains(err.Error(), "GITHUB_ADMIN_TOKEN") {
+		t.Fatalf("Load() error = %q, want GITHUB_ADMIN_TOKEN context", err.Error())
+	}
+}
+
 func TestLoadUsesDefaults(t *testing.T) {
 	for _, key := range []string{
 		"PORT",

@@ -3,9 +3,15 @@ package identity
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
+)
+
+var (
+	ErrIdentityNotFound  = errors.New("identity not found")
+	ErrIdentityAmbiguous = errors.New("identity ambiguous")
 )
 
 type Resolver interface {
@@ -35,7 +41,7 @@ func NewStaticResolver(path string) (*StaticResolver, error) {
 func (r *StaticResolver) ResolveGitHubLogin(_ context.Context, email string) (string, error) {
 	login, ok := r.byEmail[strings.ToLower(strings.TrimSpace(email))]
 	if !ok || login == "" {
-		return "", fmt.Errorf("no GitHub login for email %q", email)
+		return "", fmt.Errorf("%w: no GitHub login for email %q", ErrIdentityNotFound, email)
 	}
 	return login, nil
 }

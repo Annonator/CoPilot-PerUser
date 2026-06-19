@@ -18,9 +18,17 @@ func main() {
 		log.Fatalf("load config: %v", err)
 	}
 
-	resolver, err := identity.NewStaticResolver(cfg.GitHubIdentityStaticMapPath)
-	if err != nil {
-		log.Fatalf("create static identity resolver: %v", err)
+	var resolver identity.Resolver
+	switch cfg.GitHubIdentityResolver {
+	case "static":
+		resolver, err = identity.NewStaticResolver(cfg.GitHubIdentityStaticMapPath)
+		if err != nil {
+			log.Fatalf("create static identity resolver: %v", err)
+		}
+	case "github_saml":
+		resolver = identity.NewGitHubSAMLResolver(cfg.GitHubAPIBaseURL, cfg.GitHubAdminToken, cfg.GitHubEnterpriseSlug, cfg.UsageCacheTTL, http.DefaultClient)
+	default:
+		log.Fatalf("unsupported identity resolver: %s", cfg.GitHubIdentityResolver)
 	}
 
 	var billingClient usage.BillingClient

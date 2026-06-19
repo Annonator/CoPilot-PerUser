@@ -3,11 +3,13 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
 
 	"copilot-per-user/api/internal/auth"
+	"copilot-per-user/api/internal/identity"
 	"copilot-per-user/api/internal/usage"
 )
 
@@ -92,6 +94,10 @@ func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
 
 	monthlyUsage, err := s.usage.GetMonthlyUsage(r.Context(), claims.Email, year, month)
 	if err != nil {
+		if errors.Is(err, identity.ErrIdentityNotFound) {
+			writeError(w, http.StatusNotFound, "not_found")
+			return
+		}
 		writeError(w, http.StatusBadGateway, "bad_gateway")
 		return
 	}

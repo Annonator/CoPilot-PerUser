@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"copilot-per-user/api/internal/auth"
+	"copilot-per-user/api/internal/identity"
 	"copilot-per-user/api/internal/usage"
 )
 
@@ -258,6 +259,21 @@ func TestUsageReturnsBadGatewayForLookupFailure(t *testing.T) {
 	if strings.Contains(resp.Body.String(), "github admin token leaked") {
 		t.Fatalf("response exposed internal error: %s", resp.Body.String())
 	}
+}
+
+func TestUsageReturnsNotFoundForMissingIdentity(t *testing.T) {
+	usageService := &fakeUsageService{err: identity.ErrIdentityNotFound}
+	server := NewServer(testServerConfig(usageService))
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/usage?year=2026&month=6", nil)
+	req.Header.Set("Authorization", "Bearer "+testToken(t, "andreas.pohl@nitrado.net", "Andreas Pohl"))
+	server.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", resp.Code, http.StatusNotFound)
+	}
+	assertJSONError(t, resp, "not_found")
 }
 
 func testServerConfig(usageService UsageService) ServerConfig {

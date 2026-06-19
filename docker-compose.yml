@@ -1,0 +1,34 @@
+services:
+  api:
+    build:
+      context: ./src/api
+    environment:
+      PORT: ${PORT:-8080}
+      COMPANY_EMAIL_DOMAINS: ${COMPANY_EMAIL_DOMAINS:-company.name}
+      APP_TOKEN_SECRET: ${APP_TOKEN_SECRET:-replace-with-random-app-token-secret}
+      GITHUB_API_BASE_URL: ${GITHUB_API_BASE_URL:-https://api.github.com}
+      GITHUB_ENTERPRISE_SLUG: ${GITHUB_ENTERPRISE_SLUG:-replace-with-enterprise-slug}
+      GITHUB_ADMIN_TOKEN: ${GITHUB_ADMIN_TOKEN:-replace-with-enterprise-admin-token}
+      GITHUB_IDENTITY_RESOLVER: ${GITHUB_IDENTITY_RESOLVER:-static}
+      GITHUB_IDENTITY_STATIC_MAP_PATH: /app/config/identity-map.json
+      USAGE_CACHE_TTL: ${USAGE_CACHE_TTL:-10m}
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./src/api/internal/testfixtures/identity-map.json:/app/config/identity-map.json:ro
+
+  web:
+    build:
+      context: ./src/web
+    environment:
+      AUTH_SECRET: ${AUTH_SECRET:-replace-with-random-auth-secret}
+      AUTH_GOOGLE_ID: ${AUTH_GOOGLE_ID:-replace-with-google-client-id}
+      AUTH_GOOGLE_SECRET: ${AUTH_GOOGLE_SECRET:-replace-with-google-client-secret}
+      APP_TOKEN_SECRET: ${APP_TOKEN_SECRET:-replace-with-random-app-token-secret}
+      COMPANY_EMAIL_DOMAINS: ${COMPANY_EMAIL_DOMAINS:-company.name}
+      API_BASE_URL: http://api:8080
+      WEB_BASE_URL: ${WEB_BASE_URL:-http://localhost:3000}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api

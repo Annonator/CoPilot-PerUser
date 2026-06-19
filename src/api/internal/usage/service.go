@@ -64,7 +64,7 @@ func NewService(config ServiceConfig) *Service {
 }
 
 func (s *Service) GetMonthlyUsage(ctx context.Context, email string, year, month int) (MonthlyUsage, error) {
-	if err := validatePeriod(year, month); err != nil {
+	if err := validatePeriod(year, month, s.now()); err != nil {
 		return MonthlyUsage{}, err
 	}
 	if s.resolver == nil {
@@ -165,9 +165,13 @@ func (s *Service) daysToFetch(year, month int) int {
 	return daysInMonth(year, month)
 }
 
-func validatePeriod(year, month int) error {
+func validatePeriod(year, month int, now time.Time) error {
 	if year < 2000 || month < 1 || month > 12 {
 		return fmt.Errorf("invalid period: year must be >= 2000 and month must be 1..12")
+	}
+	now = now.UTC()
+	if year > now.Year() || (year == now.Year() && month > int(now.Month())) {
+		return fmt.Errorf("invalid period: period must not be after the current month")
 	}
 	return nil
 }

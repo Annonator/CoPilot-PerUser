@@ -215,6 +215,8 @@ func TestServiceRejectsInvalidPeriodBeforeResolverAndBilling(t *testing.T) {
 		{name: "old year", year: 1999, month: 6},
 		{name: "month zero", year: 2026, month: 0},
 		{name: "month thirteen", year: 2026, month: 13},
+		{name: "future same-year month", year: 2026, month: 7},
+		{name: "future year", year: 2027, month: 1},
 	}
 
 	for _, tt := range tests {
@@ -242,6 +244,33 @@ func TestServiceRejectsInvalidPeriodBeforeResolverAndBilling(t *testing.T) {
 				t.Fatalf("billing request count = %d", len(billing.requests))
 			}
 		})
+	}
+}
+
+func TestServiceFetchesAllDaysForHistoricalLeapYearFebruary(t *testing.T) {
+	billing := &fakeBilling{}
+	service := NewService(ServiceConfig{
+		Enterprise: "marbis",
+		Resolver:   &fakeResolver{login: "Annonator"},
+		Billing:    billing,
+		Now:        func() time.Time { return time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC) },
+	})
+
+	result, err := service.GetMonthlyUsage(context.Background(), "andreas.pohl@nitrado.net", 2024, 2)
+	if err != nil {
+		t.Fatalf("GetMonthlyUsage() error = %v", err)
+	}
+	if len(result.Daily) != 29 {
+		t.Fatalf("Daily length = %d", len(result.Daily))
+	}
+	if result.Daily[28].Day != "2024-02-29" {
+		t.Fatalf("last Daily Day = %q", result.Daily[28].Day)
+	}
+	if len(billing.requests) != 30 {
+		t.Fatalf("billing request count = %d", len(billing.requests))
+	}
+	if billing.requests[29].Day != 29 {
+		t.Fatalf("last billing request day = %d", billing.requests[29].Day)
 	}
 }
 

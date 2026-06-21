@@ -18,27 +18,30 @@ type UsageService interface {
 }
 
 type ServerConfig struct {
-	Auth                auth.Manager
-	CompanyEmailDomains []string
-	Usage               UsageService
-	Now                 func() time.Time
+	Auth                       auth.Manager
+	CompanyEmailDomains        []string
+	Usage                      UsageService
+	Now                        func() time.Time
+	UsageReportingWindowMonths int
 }
 
 type Server struct {
-	mux                 *http.ServeMux
-	auth                auth.Manager
-	companyEmailDomains []string
-	usage               UsageService
-	now                 func() time.Time
+	mux                        *http.ServeMux
+	auth                       auth.Manager
+	companyEmailDomains        []string
+	usage                      UsageService
+	now                        func() time.Time
+	usageReportingWindowMonths int
 }
 
 func NewServer(cfg ServerConfig) *Server {
 	server := &Server{
-		mux:                 http.NewServeMux(),
-		auth:                cfg.Auth,
-		companyEmailDomains: append([]string(nil), cfg.CompanyEmailDomains...),
-		usage:               cfg.Usage,
-		now:                 cfg.Now,
+		mux:                        http.NewServeMux(),
+		auth:                       cfg.Auth,
+		companyEmailDomains:        append([]string(nil), cfg.CompanyEmailDomains...),
+		usage:                      cfg.Usage,
+		now:                        cfg.Now,
+		usageReportingWindowMonths: cfg.UsageReportingWindowMonths,
 	}
 	if server.now == nil {
 		server.now = time.Now
@@ -86,9 +89,9 @@ func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	year, month, ok := parsePeriod(r, s.now())
-	if !ok {
-		writeError(w, http.StatusBadRequest, "bad_request")
+	year, month, err := parsePeriod(r, s.now(), s.usageReportingWindowMonths)
+	if err != nil {
+		writePeriodError(w, err)
 		return
 	}
 
@@ -96,6 +99,10 @@ func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if errors.Is(err, identity.ErrIdentityNotFound) {
 			writeError(w, http.StatusNotFound, "not_found")
+			return
+		}
+		if errors.Is(err, usage.ErrInvalidPeriod) || errors.Is(err, usage.ErrPeriodOutOfRange) {
+			writePeriodError(w, err)
 			return
 		}
 		writeError(w, http.StatusBadGateway, "bad_gateway")
@@ -117,21 +124,20 @@ func (s *Server) authenticate(w http.ResponseWriter, r *http.Request) (auth.Clai
 	return claims, true
 }
 
-func parsePeriod(r *http.Request, now time.Time) (int, int, bool) {
+func parsePeriod(r *http.Request, now time.Time, reportingWindowMonths int) (int, int, error) {
 	query := r.URL.Query()
 	year, err := strconv.Atoi(query.Get("year"))
 	if err != nil || year < 2000 {
-		return 0, 0, false
+		return 0, 0, usage.ErrInvalidPeriod
 	}
 	month, err := strconv.Atoi(query.Get("month"))
 	if err != nil || month < 1 || month > 12 {
-		return 0, 0, false
+		return 0, 0, usage.ErrInvalidPeriod
 	}
-	now = now.UTC()
-	if year > now.Year() || (year == now.Year() && month > int(now.Month())) {
-		return 0, 0, false
+	if err := usage.ValidateReportingPeriod(year, month, now, reportingWindowMonths); err != nil {
+		return 0, 0, err
 	}
-	return year, month, true
+	return year, month, nil
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
@@ -142,4 +148,12 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 
 func writeError(w http.ResponseWriter, status int, code string) {
 	writeJSON(w, status, map[string]string{"error": code})
+}
+
+func writePeriodError(w http.ResponseWriter, err error) {
+	if errors.Is(err, usage.ErrPeriodOutOfRange) {
+		writeError(w, http.StatusBadRequest, "period_out_of_range")
+		return
+	}
+	writeError(w, http.StatusBadRequest, "bad_request")
 }

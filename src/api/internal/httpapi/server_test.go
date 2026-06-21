@@ -209,6 +209,24 @@ func TestUsageRejectsBadPeriod(t *testing.T) {
 	}
 }
 
+func TestUsageRejectsPeriodOutsideReportingWindow(t *testing.T) {
+	usageService := &fakeUsageService{}
+	server := NewServer(testServerConfig(usageService))
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/usage?year=2025&month=12", nil)
+	req.Header.Set("Authorization", "Bearer "+testToken(t, "andreas.pohl@nitrado.net", "Andreas Pohl"))
+	server.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", resp.Code, http.StatusBadRequest)
+	}
+	if usageService.seenEmail != "" {
+		t.Fatalf("usage email = %q, want no service call", usageService.seenEmail)
+	}
+	assertJSONError(t, resp, "period_out_of_range")
+}
+
 func TestUsageReturnsUnauthorizedAndForbiddenBeforeLookup(t *testing.T) {
 	tests := []struct {
 		name          string

@@ -2,6 +2,7 @@ package usage
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -13,6 +14,13 @@ import (
 
 const sourceGitHubEnterpriseBillingAICreditUsage = "github_enterprise_billing_ai_credit_usage"
 
+const DefaultReportingWindowMonths = 6
+
+var (
+	ErrInvalidPeriod    = errors.New("invalid period")
+	ErrPeriodOutOfRange = errors.New("period outside reporting window")
+)
+
 type BillingClient interface {
 	GetAICreditUsage(context.Context, gh.AICreditUsageRequest) (gh.AICreditUsageReport, error)
 }
@@ -23,6 +31,8 @@ type ServiceConfig struct {
 	Billing    BillingClient
 	CacheTTL   time.Duration
 	Now        func() time.Time
+
+	ReportingWindowMonths int
 }
 
 type Service struct {
@@ -32,8 +42,11 @@ type Service struct {
 	cacheTTL   time.Duration
 	now        func() time.Time
 
-	mu    sync.Mutex
-	cache map[cacheKey]cacheEntry
+	reportingWindowMonths int
+
+	mu       sync.Mutex
+	cache    map[cacheKey]cacheEntry
+	inflight map[cacheKey]*inflightCall
 }
 
 type cacheKey struct {
@@ -48,23 +61,31 @@ type cacheEntry struct {
 	usage     MonthlyUsage
 }
 
+type inflightCall struct {
+	done  chan struct{}
+	usage MonthlyUsage
+	err   error
+}
+
 func NewService(config ServiceConfig) *Service {
 	now := config.Now
 	if now == nil {
 		now = time.Now
 	}
 	return &Service{
-		enterprise: config.Enterprise,
-		resolver:   config.Resolver,
-		billing:    config.Billing,
-		cacheTTL:   config.CacheTTL,
-		now:        now,
-		cache:      make(map[cacheKey]cacheEntry),
+		enterprise:            config.Enterprise,
+		resolver:              config.Resolver,
+		billing:               config.Billing,
+		cacheTTL:              config.CacheTTL,
+		now:                   now,
+		reportingWindowMonths: normalizeReportingWindowMonths(config.ReportingWindowMonths),
+		cache:                 make(map[cacheKey]cacheEntry),
+		inflight:              make(map[cacheKey]*inflightCall),
 	}
 }
 
 func (s *Service) GetMonthlyUsage(ctx context.Context, email string, year, month int) (MonthlyUsage, error) {
-	if err := validatePeriod(year, month, s.now()); err != nil {
+	if err := ValidateReportingPeriod(year, month, s.now(), s.reportingWindowMonths); err != nil {
 		return MonthlyUsage{}, err
 	}
 	if s.resolver == nil {
@@ -95,6 +116,29 @@ func (s *Service) GetMonthlyUsage(ctx context.Context, email string, year, month
 		return usage, nil
 	}
 
+	call, owner := s.getInflight(key)
+	if !owner {
+		<-call.done
+		if call.err != nil {
+			return MonthlyUsage{}, call.err
+		}
+		usage := cloneMonthlyUsage(call.usage)
+		usage.User.Email = email
+		return usage, nil
+	}
+
+	usage, err := s.fetchMonthlyUsage(ctx, email, login, year, month)
+	if err == nil {
+		s.store(key, usage)
+	}
+	s.finishInflight(key, call, usage, err)
+	if err != nil {
+		return MonthlyUsage{}, err
+	}
+	return usage, nil
+}
+
+func (s *Service) fetchMonthlyUsage(ctx context.Context, email, login string, year, month int) (MonthlyUsage, error) {
 	monthlyReport, err := s.billing.GetAICreditUsage(ctx, gh.AICreditUsageRequest{
 		Enterprise: s.enterprise,
 		User:       login,
@@ -103,11 +147,6 @@ func (s *Service) GetMonthlyUsage(ctx context.Context, email string, year, month
 	})
 	if err != nil {
 		return MonthlyUsage{}, fmt.Errorf("get monthly AI credit usage: %w", err)
-	}
-
-	daily, err := s.getDailyUsage(ctx, login, year, month)
-	if err != nil {
-		return MonthlyUsage{}, err
 	}
 
 	models := normalizeModels(monthlyReport.UsageItems)
@@ -122,69 +161,43 @@ func (s *Service) GetMonthlyUsage(ctx context.Context, email string, year, month
 		},
 		Totals: sumModels(models),
 		Models: models,
-		Daily:  daily,
+		Daily:  []DailyUsage{},
 		SourceMetadata: SourceMetadata{
 			Enterprise: s.enterprise,
 			Source:     sourceGitHubEnterpriseBillingAICreditUsage,
 			Cached:     false,
 		},
 	}
-	s.store(key, usage)
 	return usage, nil
 }
 
-func (s *Service) getDailyUsage(ctx context.Context, login string, year, month int) ([]DailyUsage, error) {
-	dayCount := s.daysToFetch(year, month)
-	daily := make([]DailyUsage, 0, dayCount)
-	for day := 1; day <= dayCount; day++ {
-		report, err := s.billing.GetAICreditUsage(ctx, gh.AICreditUsageRequest{
-			Enterprise: s.enterprise,
-			User:       login,
-			Year:       year,
-			Month:      month,
-			Day:        day,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("get daily AI credit usage for day %d: %w", day, err)
-		}
-		models := normalizeModels(report.UsageItems)
-		daily = append(daily, DailyUsage{
-			Day:    dateString(year, month, day),
-			Models: models,
-			Totals: sumModels(models),
-		})
-	}
-	return daily, nil
-}
-
-func (s *Service) daysToFetch(year, month int) int {
-	now := s.now().UTC()
-	if year == now.Year() && month == int(now.Month()) {
-		return now.Day()
-	}
-	return daysInMonth(year, month)
-}
-
-func validatePeriod(year, month int, now time.Time) error {
+func ValidateReportingPeriod(year, month int, now time.Time, reportingWindowMonths int) error {
 	if year < 2000 || month < 1 || month > 12 {
-		return fmt.Errorf("invalid period: year must be >= 2000 and month must be 1..12")
+		return fmt.Errorf("%w: year must be >= 2000 and month must be 1..12", ErrInvalidPeriod)
 	}
 	now = now.UTC()
 	if year > now.Year() || (year == now.Year() && month > int(now.Month())) {
-		return fmt.Errorf("invalid period: period must not be after the current month")
+		return fmt.Errorf("%w: period must not be after the current month", ErrInvalidPeriod)
+	}
+	reportingWindowMonths = normalizeReportingWindowMonths(reportingWindowMonths)
+	requestedMonth := serialMonth(year, month)
+	currentMonth := serialMonth(now.Year(), int(now.Month()))
+	oldestAllowedMonth := currentMonth - reportingWindowMonths + 1
+	if requestedMonth < oldestAllowedMonth {
+		return fmt.Errorf("%w: period must be within the most recent %d months", ErrPeriodOutOfRange, reportingWindowMonths)
 	}
 	return nil
 }
 
-func daysInMonth(year, month int) int {
-	if month < 1 || month > 12 {
-		return 0
+func normalizeReportingWindowMonths(months int) int {
+	if months <= 0 {
+		return DefaultReportingWindowMonths
 	}
-	return time.Date(year, time.Month(month)+1, 0, 0, 0, 0, 0, time.UTC).Day()
+	return months
 }
 
-func dateString(year, month, day int) string {
-	return time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC).Format("2006-01-02")
+func serialMonth(year, month int) int {
+	return year*12 + month - 1
 }
 
 func (s *Service) cached(key cacheKey) (MonthlyUsage, bool) {
@@ -220,6 +233,29 @@ func (s *Service) store(key cacheKey, usage MonthlyUsage) {
 	}
 }
 
+func (s *Service) getInflight(key cacheKey) (*inflightCall, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if call, ok := s.inflight[key]; ok {
+		return call, false
+	}
+	call := &inflightCall{done: make(chan struct{})}
+	s.inflight[key] = call
+	return call, true
+}
+
+func (s *Service) finishInflight(key cacheKey, call *inflightCall, usage MonthlyUsage, err error) {
+	call.usage = cloneMonthlyUsage(usage)
+	call.err = err
+
+	close(call.done)
+
+	s.mu.Lock()
+	delete(s.inflight, key)
+	s.mu.Unlock()
+}
+
 func normalizeModels(items []gh.AICreditUsageItem) []ModelUsage {
 	models := make([]ModelUsage, 0, len(items))
 	for _, item := range items {
@@ -247,10 +283,28 @@ func sumModels(models []ModelUsage) UsageTotals {
 }
 
 func cloneMonthlyUsage(usage MonthlyUsage) MonthlyUsage {
-	usage.Models = append([]ModelUsage(nil), usage.Models...)
-	usage.Daily = append([]DailyUsage(nil), usage.Daily...)
+	usage.Models = cloneModels(usage.Models)
+	usage.Daily = cloneDailyUsage(usage.Daily)
 	for i := range usage.Daily {
-		usage.Daily[i].Models = append([]ModelUsage(nil), usage.Daily[i].Models...)
+		usage.Daily[i].Models = cloneModels(usage.Daily[i].Models)
 	}
 	return usage
+}
+
+func cloneModels(models []ModelUsage) []ModelUsage {
+	if models == nil {
+		return nil
+	}
+	out := make([]ModelUsage, len(models))
+	copy(out, models)
+	return out
+}
+
+func cloneDailyUsage(daily []DailyUsage) []DailyUsage {
+	if daily == nil {
+		return nil
+	}
+	out := make([]DailyUsage, len(daily))
+	copy(out, daily)
+	return out
 }

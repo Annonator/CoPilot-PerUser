@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 
 import { auth } from "@/auth";
 import { SignOutButton } from "@/components/sign-out-button";
@@ -58,9 +59,9 @@ export default async function HomePage({
   return (
     <>
       <nav className="topbar">
-        <a href="/" className="brand">
+        <Link href="/" className="brand">
           Copilot AI Usage
-        </a>
+        </Link>
         <SignOutButton />
       </nav>
       {content}

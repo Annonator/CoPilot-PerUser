@@ -115,7 +115,7 @@ Normalize GitHub billing fields to the screenshot vocabulary:
 - `additionalUsage`: `netAmount`
 - `pricePerCredit`: `pricePerUnit`, expected to be `0.01`
 
-For the daily chart, the backend will make one filtered billing call per day in the selected period, capped to elapsed days for the current month. These daily results share the same cache as the monthly totals.
+Default monthly usage responses include monthly totals and model breakdowns only. The backend should not eagerly fan out one privileged GitHub billing call per day for normal dashboard loads. The `daily` response field remains an empty array until a dedicated drill-down API is added with its own authorization and request budget.
 
 ## Backend API
 
@@ -124,6 +124,8 @@ Initial endpoints:
 - `GET /healthz`: process health.
 - `GET /v1/me`: authenticated profile returned from validated app token.
 - `GET /v1/usage?year=YYYY&month=M`: current user's AI credit usage for a month.
+
+`/v1/usage` accepts only recent, non-future periods. The default reporting window is six months, configurable with `USAGE_REPORTING_WINDOW_MONTHS`.
 
 Suggested internal modules:
 
@@ -196,6 +198,7 @@ GITHUB_ADMIN_TOKEN
 GITHUB_IDENTITY_RESOLVER
 GITHUB_IDENTITY_STATIC_MAP_PATH
 USAGE_CACHE_TTL
+USAGE_REPORTING_WINDOW_MONTHS
 ```
 
 `GITHUB_API_BASE_URL` defaults to `https://api.github.com` for GitHub Enterprise Cloud. If the enterprise moves to a dedicated `ghe.com` subdomain, configure the dedicated API hostname.
@@ -206,6 +209,8 @@ Return clear, user-safe errors:
 
 - `401`: not signed in or invalid app token.
 - `403`: signed-in email is outside the configured company domain.
+- `400 bad_request`: malformed period or future period.
+- `400 period_out_of_range`: period is older than the configured reporting window.
 - `404`: no linked GitHub SAML identity found for the signed-in email.
 - `502`: GitHub API failure.
 - `503`: GitHub rate limit or temporary outage.

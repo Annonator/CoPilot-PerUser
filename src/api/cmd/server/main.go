@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net/http"
+	"time"
 
 	"copilot-per-user/api/internal/auth"
 	"copilot-per-user/api/internal/config"
@@ -10,6 +11,13 @@ import (
 	"copilot-per-user/api/internal/httpapi"
 	"copilot-per-user/api/internal/identity"
 	"copilot-per-user/api/internal/usage"
+)
+
+const (
+	httpReadHeaderTimeout = 5 * time.Second
+	httpReadTimeout       = 15 * time.Second
+	httpWriteTimeout      = 60 * time.Second
+	httpIdleTimeout       = 120 * time.Second
 )
 
 func main() {
@@ -38,19 +46,32 @@ func main() {
 		billingClient = gh.NewBillingClient(cfg.GitHubAPIBaseURL, cfg.GitHubAdminToken, http.DefaultClient)
 	}
 	usageService := usage.NewService(usage.ServiceConfig{
-		Enterprise: cfg.GitHubEnterpriseSlug,
-		Resolver:   resolver,
-		Billing:    billingClient,
-		CacheTTL:   cfg.UsageCacheTTL,
+		Enterprise:            cfg.GitHubEnterpriseSlug,
+		Resolver:              resolver,
+		Billing:               billingClient,
+		CacheTTL:              cfg.UsageCacheTTL,
+		ReportingWindowMonths: cfg.UsageReportingWindowMonths,
 	})
 	server := httpapi.NewServer(httpapi.ServerConfig{
-		Auth:                auth.Manager{Secret: []byte(cfg.AppTokenSecret)},
-		CompanyEmailDomains: cfg.CompanyEmailDomains,
-		Usage:               usageService,
+		Auth:                       auth.Manager{Secret: []byte(cfg.AppTokenSecret)},
+		CompanyEmailDomains:        cfg.CompanyEmailDomains,
+		Usage:                      usageService,
+		UsageReportingWindowMonths: cfg.UsageReportingWindowMonths,
 	})
 
 	log.Printf("listening on :%s", cfg.Port)
-	if err := http.ListenAndServe(":"+cfg.Port, server); err != nil {
+	if err := newHTTPServer(":"+cfg.Port, server).ListenAndServe(); err != nil {
 		log.Fatalf("listen and serve: %v", err)
+	}
+}
+
+func newHTTPServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: httpReadHeaderTimeout,
+		ReadTimeout:       httpReadTimeout,
+		WriteTimeout:      httpWriteTimeout,
+		IdleTimeout:       httpIdleTimeout,
 	}
 }

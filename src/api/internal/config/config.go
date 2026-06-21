@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -18,6 +19,7 @@ type Config struct {
 	GitHubIdentityStaticMapPath string
 	GitHubBillingFixturePath    string
 	UsageCacheTTL               time.Duration
+	UsageReportingWindowMonths  int
 }
 
 const minimumSecretLength = 32
@@ -34,6 +36,7 @@ func Load() (Config, error) {
 		GitHubIdentityStaticMapPath: os.Getenv("GITHUB_IDENTITY_STATIC_MAP_PATH"),
 		GitHubBillingFixturePath:    os.Getenv("GITHUB_BILLING_FIXTURE_PATH"),
 		UsageCacheTTL:               10 * time.Minute,
+		UsageReportingWindowMonths:  6,
 	}
 
 	if rawTTL := os.Getenv("USAGE_CACHE_TTL"); rawTTL != "" {
@@ -45,6 +48,16 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("USAGE_CACHE_TTL must be positive")
 		}
 		cfg.UsageCacheTTL = ttl
+	}
+	if rawWindow := os.Getenv("USAGE_REPORTING_WINDOW_MONTHS"); rawWindow != "" {
+		window, err := strconv.Atoi(rawWindow)
+		if err != nil {
+			return Config{}, fmt.Errorf("parse USAGE_REPORTING_WINDOW_MONTHS: %w", err)
+		}
+		if window <= 0 {
+			return Config{}, fmt.Errorf("USAGE_REPORTING_WINDOW_MONTHS must be positive")
+		}
+		cfg.UsageReportingWindowMonths = window
 	}
 
 	if len(cfg.CompanyEmailDomains) == 0 {

@@ -12,6 +12,7 @@ const validAppTokenSecret = "0123456789abcdef0123456789abcdef"
 func TestLoadFromEnv(t *testing.T) {
 	setValidEnv(t)
 	t.Setenv("USAGE_CACHE_TTL", "5m")
+	t.Setenv("USAGE_REPORTING_WINDOW_MONTHS", "3")
 	t.Setenv("GITHUB_BILLING_FIXTURE_PATH", "internal/testfixtures/ai-credit-usage.json")
 
 	cfg, err := Load()
@@ -26,6 +27,9 @@ func TestLoadFromEnv(t *testing.T) {
 	}
 	if cfg.UsageCacheTTL.String() != "5m0s" {
 		t.Fatalf("UsageCacheTTL = %s", cfg.UsageCacheTTL)
+	}
+	if cfg.UsageReportingWindowMonths != 3 {
+		t.Fatalf("UsageReportingWindowMonths = %d", cfg.UsageReportingWindowMonths)
 	}
 	if cfg.GitHubBillingFixturePath != "internal/testfixtures/ai-credit-usage.json" {
 		t.Fatalf("GitHubBillingFixturePath = %q", cfg.GitHubBillingFixturePath)
@@ -158,6 +162,7 @@ func TestLoadUsesDefaults(t *testing.T) {
 		"GITHUB_API_BASE_URL",
 		"GITHUB_IDENTITY_RESOLVER",
 		"USAGE_CACHE_TTL",
+		"USAGE_REPORTING_WINDOW_MONTHS",
 	} {
 		unsetEnv(t, key)
 	}
@@ -183,6 +188,9 @@ func TestLoadUsesDefaults(t *testing.T) {
 	if cfg.UsageCacheTTL.String() != "10m0s" {
 		t.Fatalf("UsageCacheTTL = %s", cfg.UsageCacheTTL)
 	}
+	if cfg.UsageReportingWindowMonths != 6 {
+		t.Fatalf("UsageReportingWindowMonths = %d", cfg.UsageReportingWindowMonths)
+	}
 }
 
 func TestLoadRejectsNonPositiveUsageCacheTTL(t *testing.T) {
@@ -196,6 +204,33 @@ func TestLoadRejectsNonPositiveUsageCacheTTL(t *testing.T) {
 				t.Fatal("Load() error = nil, want non-positive USAGE_CACHE_TTL error")
 			}
 		})
+	}
+}
+
+func TestLoadRejectsNonPositiveUsageReportingWindowMonths(t *testing.T) {
+	for _, window := range []string{"0", "-1"} {
+		t.Run(window, func(t *testing.T) {
+			setValidEnv(t)
+			t.Setenv("USAGE_REPORTING_WINDOW_MONTHS", window)
+
+			_, err := Load()
+			if err == nil {
+				t.Fatal("Load() error = nil, want non-positive USAGE_REPORTING_WINDOW_MONTHS error")
+			}
+		})
+	}
+}
+
+func TestLoadRejectsMalformedUsageReportingWindowMonths(t *testing.T) {
+	setValidEnv(t)
+	t.Setenv("USAGE_REPORTING_WINDOW_MONTHS", "six")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("Load() error = nil, want malformed USAGE_REPORTING_WINDOW_MONTHS error")
+	}
+	if !strings.Contains(err.Error(), "USAGE_REPORTING_WINDOW_MONTHS") {
+		t.Fatalf("Load() error = %q, want USAGE_REPORTING_WINDOW_MONTHS context", err.Error())
 	}
 }
 
@@ -240,6 +275,7 @@ func setValidEnv(t *testing.T) {
 	t.Setenv("GITHUB_IDENTITY_RESOLVER", "static")
 	t.Setenv("GITHUB_IDENTITY_STATIC_MAP_PATH", "internal/testfixtures/identity-map.json")
 	t.Setenv("USAGE_CACHE_TTL", "")
+	t.Setenv("USAGE_REPORTING_WINDOW_MONTHS", "")
 }
 
 func unsetEnv(t *testing.T, key string) {

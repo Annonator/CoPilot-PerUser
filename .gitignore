@@ -3,6 +3,7 @@
 # Local secrets
 .env
 .env.local
+.env.integration
 .env.*.local
 
 # Node

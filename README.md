@@ -21,7 +21,13 @@ cp .env.example .env
 cp .env.example src/web/.env.local
 ```
 
-Never commit real Google OAuth secrets or GitHub enterprise admin tokens.
+Generate `AUTH_SECRET` and `APP_TOKEN_SECRET` with `openssl rand -base64 32`
+and store them in ignored env files or shell environment. Docker Compose does
+not provide fallback values for these secrets. Placeholder values and short
+strings are rejected at startup/runtime.
+
+Never commit real Google OAuth secrets, GitHub enterprise admin tokens,
+`AUTH_SECRET`, or `APP_TOKEN_SECRET`.
 
 ## Local Demo Without Google or GitHub
 
@@ -32,15 +38,19 @@ or a GitHub Enterprise billing credential. Demo mode is disabled when
 For host development, put the web values in `src/web/.env.local`:
 
 ```env
-AUTH_SECRET=local-auth-secret
+AUTH_SECRET=replace-with-output-of-openssl-rand-base64-32
 AUTH_GOOGLE_ID=unused
 AUTH_GOOGLE_SECRET=unused
 AUTH_DEV_EMAIL=user@company.name
 AUTH_DEV_NAME=Local Demo User
 COMPANY_EMAIL_DOMAINS=company.name
-APP_TOKEN_SECRET=local-app-token-secret
+APP_TOKEN_SECRET=replace-with-output-of-openssl-rand-base64-32
 API_BASE_URL=http://localhost:8080
 ```
+
+Replace both secret placeholders with generated values. The API command below
+must use the same `APP_TOKEN_SECRET` value that you put in `src/web/.env.local`;
+export it in the API terminal before starting the service.
 
 Then run the API and web app in separate terminals:
 
@@ -48,7 +58,7 @@ Then run the API and web app in separate terminals:
 cd src/api
 PORT=8080 \
 COMPANY_EMAIL_DOMAINS=company.name \
-APP_TOKEN_SECRET=local-app-token-secret \
+APP_TOKEN_SECRET="$APP_TOKEN_SECRET" \
 GITHUB_ENTERPRISE_SLUG=local-demo \
 GITHUB_ADMIN_TOKEN= \
 GITHUB_IDENTITY_RESOLVER=static \
@@ -72,8 +82,8 @@ For Docker Compose demo mode, use the container fixture path:
 ```bash
 AUTH_DEV_EMAIL=user@company.name \
 AUTH_DEV_NAME="Local Demo User" \
-APP_TOKEN_SECRET=local-app-token-secret \
-AUTH_SECRET=local-auth-secret \
+APP_TOKEN_SECRET="$(openssl rand -base64 32)" \
+AUTH_SECRET="$(openssl rand -base64 32)" \
 COMPANY_EMAIL_DOMAINS=company.name \
 GITHUB_ENTERPRISE_SLUG=local-demo \
 GITHUB_ADMIN_TOKEN= \
@@ -108,7 +118,7 @@ Set the generated OAuth values in `.env` and, for host web development, in
 ```env
 AUTH_GOOGLE_ID=your-google-client-id.apps.googleusercontent.com
 AUTH_GOOGLE_SECRET=your-google-client-secret
-AUTH_SECRET=replace-with-a-long-random-secret
+AUTH_SECRET=replace-with-output-of-openssl-rand-base64-32
 COMPANY_EMAIL_DOMAINS=your-company.com
 WEB_BASE_URL=http://localhost:3000
 ```
@@ -148,7 +158,7 @@ This is not a Google OAuth secret and not a GitHub token. Both services must use
 the same value, and it should be a long random string:
 
 ```env
-APP_TOKEN_SECRET=replace-with-another-long-random-secret
+APP_TOKEN_SECRET=replace-with-output-of-openssl-rand-base64-32
 ```
 
 ### GitHub Identity Mapping
@@ -246,7 +256,7 @@ For a local production build without real OAuth credentials:
 
 ```bash
 cd src/web
-AUTH_SECRET=test APP_TOKEN_SECRET=test COMPANY_EMAIL_DOMAINS=company.name API_BASE_URL=http://localhost:8080 AUTH_GOOGLE_ID=test AUTH_GOOGLE_SECRET=test npm run build
+AUTH_SECRET="$(openssl rand -base64 32)" APP_TOKEN_SECRET="$(openssl rand -base64 32)" COMPANY_EMAIL_DOMAINS=company.name API_BASE_URL=http://localhost:8080 AUTH_GOOGLE_ID=test AUTH_GOOGLE_SECRET=test npm run build
 ```
 
 ## Docker Development

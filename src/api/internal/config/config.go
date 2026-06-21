@@ -22,6 +22,8 @@ type Config struct {
 	UsageReportingWindowMonths  int
 }
 
+const minimumSecretLength = 32
+
 func Load() (Config, error) {
 	cfg := Config{
 		Port:                        envDefault("PORT", "8080"),
@@ -61,8 +63,8 @@ func Load() (Config, error) {
 	if len(cfg.CompanyEmailDomains) == 0 {
 		return Config{}, fmt.Errorf("COMPANY_EMAIL_DOMAINS is required")
 	}
-	if cfg.AppTokenSecret == "" {
-		return Config{}, fmt.Errorf("APP_TOKEN_SECRET is required")
+	if err := validateAppTokenSecret(cfg.AppTokenSecret); err != nil {
+		return Config{}, err
 	}
 	if cfg.GitHubEnterpriseSlug == "" {
 		return Config{}, fmt.Errorf("GITHUB_ENTERPRISE_SLUG is required")
@@ -81,6 +83,37 @@ func Load() (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func validateAppTokenSecret(secret string) error {
+	trimmed := strings.TrimSpace(secret)
+	if trimmed == "" {
+		return fmt.Errorf("APP_TOKEN_SECRET is required")
+	}
+	if trimmed != secret {
+		return fmt.Errorf("APP_TOKEN_SECRET must not include leading or trailing whitespace")
+	}
+
+	normalized := strings.ToLower(trimmed)
+	if isPlaceholderSecret(normalized) || len(trimmed) < minimumSecretLength {
+		return fmt.Errorf("APP_TOKEN_SECRET must be a long random value; placeholders and short secrets are not allowed")
+	}
+
+	return nil
+}
+
+func isPlaceholderSecret(secret string) bool {
+	if strings.Contains(secret, "replace-with") || strings.Contains(secret, "placeholder") {
+		return true
+	}
+
+	switch secret {
+	case "changeme", "change-me", "secret", "test", "password",
+		"local-app-token-secret", "local-auth-secret", "build-secret":
+		return true
+	default:
+		return false
+	}
 }
 
 func envDefault(key string, fallback string) string {

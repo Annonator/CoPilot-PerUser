@@ -2,9 +2,12 @@ package config
 
 import (
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 )
+
+const validAppTokenSecret = "0123456789abcdef0123456789abcdef"
 
 func TestLoadFromEnv(t *testing.T) {
 	setValidEnv(t)
@@ -53,6 +56,47 @@ func TestLoadRequiresSecrets(t *testing.T) {
 				t.Fatalf("Load() error = %q, want it to contain %q", err.Error(), key)
 			}
 		})
+	}
+}
+
+func TestLoadRejectsWeakAppTokenSecret(t *testing.T) {
+	tests := []string{
+		"replace-with-random-app-token-secret",
+		"replace-with-another-long-random-secret",
+		"local-app-token-secret",
+		"secret",
+		"short-secret",
+	}
+
+	for _, secret := range tests {
+		t.Run(secret, func(t *testing.T) {
+			setValidEnv(t)
+			t.Setenv("APP_TOKEN_SECRET", secret)
+
+			_, err := Load()
+			if err == nil {
+				t.Fatal("Load() error = nil, want weak APP_TOKEN_SECRET rejection")
+			}
+			if !strings.Contains(err.Error(), "APP_TOKEN_SECRET") {
+				t.Fatalf("Load() error = %q, want APP_TOKEN_SECRET context", err.Error())
+			}
+			if !regexp.MustCompile(`long random|placeholder`).MatchString(err.Error()) {
+				t.Fatalf("Load() error = %q, want actionable secret guidance", err.Error())
+			}
+		})
+	}
+}
+
+func TestLoadAcceptsLongAppTokenSecret(t *testing.T) {
+	setValidEnv(t)
+	t.Setenv("APP_TOKEN_SECRET", validAppTokenSecret)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.AppTokenSecret != validAppTokenSecret {
+		t.Fatalf("AppTokenSecret = %q", cfg.AppTokenSecret)
 	}
 }
 
@@ -123,7 +167,7 @@ func TestLoadUsesDefaults(t *testing.T) {
 		unsetEnv(t, key)
 	}
 	t.Setenv("COMPANY_EMAIL_DOMAINS", "company.name")
-	t.Setenv("APP_TOKEN_SECRET", "secret")
+	t.Setenv("APP_TOKEN_SECRET", validAppTokenSecret)
 	t.Setenv("GITHUB_ENTERPRISE_SLUG", "marbis")
 	t.Setenv("GITHUB_ADMIN_TOKEN", "ghp_secret")
 	t.Setenv("GITHUB_IDENTITY_STATIC_MAP_PATH", "internal/testfixtures/identity-map.json")
@@ -224,7 +268,7 @@ func setValidEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("PORT", "9090")
 	t.Setenv("COMPANY_EMAIL_DOMAINS", "company.name,example.com")
-	t.Setenv("APP_TOKEN_SECRET", "secret")
+	t.Setenv("APP_TOKEN_SECRET", validAppTokenSecret)
 	t.Setenv("GITHUB_API_BASE_URL", "https://api.github.com")
 	t.Setenv("GITHUB_ENTERPRISE_SLUG", "marbis")
 	t.Setenv("GITHUB_ADMIN_TOKEN", "ghp_secret")

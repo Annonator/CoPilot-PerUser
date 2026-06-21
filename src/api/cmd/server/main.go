@@ -46,15 +46,17 @@ func main() {
 		billingClient = gh.NewBillingClient(cfg.GitHubAPIBaseURL, cfg.GitHubAdminToken, http.DefaultClient)
 	}
 	usageService := usage.NewService(usage.ServiceConfig{
-		Enterprise: cfg.GitHubEnterpriseSlug,
-		Resolver:   resolver,
-		Billing:    billingClient,
-		CacheTTL:   cfg.UsageCacheTTL,
+		Enterprise:            cfg.GitHubEnterpriseSlug,
+		Resolver:              resolver,
+		Billing:               billingClient,
+		CacheTTL:              cfg.UsageCacheTTL,
+		ReportingWindowMonths: cfg.UsageReportingWindowMonths,
 	})
 	server := httpapi.NewServer(httpapi.ServerConfig{
-		Auth:                auth.Manager{Secret: []byte(cfg.AppTokenSecret)},
-		CompanyEmailDomains: cfg.CompanyEmailDomains,
-		Usage:               usageService,
+		Auth:                       auth.Manager{Secret: []byte(cfg.AppTokenSecret)},
+		CompanyEmailDomains:        cfg.CompanyEmailDomains,
+		Usage:                      usageService,
+		UsageReportingWindowMonths: cfg.UsageReportingWindowMonths,
 	})
 
 	log.Printf("listening on :%s", cfg.Port)

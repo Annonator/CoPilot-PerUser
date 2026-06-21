@@ -204,6 +204,24 @@ USAGE_CACHE_TTL=10m
 Examples: `5m`, `30m`, `1h`. Failed identity lookups are not cached, so fixed
 GitHub membership, SAML, or token configuration is retried on the next request.
 
+### Usage Reporting Window
+
+`GET /v1/usage` accepts only recent, non-future monthly periods. The default
+window is the current month plus the previous five months. Configure a different
+positive month count when needed:
+
+```env
+USAGE_REPORTING_WINDOW_MONTHS=6
+```
+
+Requests outside the configured window return HTTP `400` with JSON error
+`period_out_of_range`. Malformed periods and future periods return HTTP `400`
+with JSON error `bad_request`.
+
+The default monthly usage response includes monthly totals and model breakdowns.
+The `daily` field is returned as an empty array until a dedicated drill-down API
+is added.
+
 ## Host Development
 
 Run the API:

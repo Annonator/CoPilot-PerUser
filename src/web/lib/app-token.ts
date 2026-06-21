@@ -2,6 +2,8 @@ import "server-only";
 
 import { SignJWT } from "jose";
 
+import { requireServerSecret } from "./server-secret";
+
 type AppTokenSubject = {
   email: string;
   name?: string | null;
@@ -10,10 +12,7 @@ type AppTokenSubject = {
 const encoder = new TextEncoder();
 
 export async function createAppToken(subject: AppTokenSubject): Promise<string> {
-  const secret = process.env.APP_TOKEN_SECRET;
-  if (!secret) {
-    throw new Error("APP_TOKEN_SECRET is required");
-  }
+  const secret = requireServerSecret("APP_TOKEN_SECRET");
 
   return new SignJWT({
     email: subject.email,

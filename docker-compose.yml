@@ -37,6 +37,7 @@ services:
       APP_TOKEN_SECRET: ${APP_TOKEN_SECRET:?APP_TOKEN_SECRET must be set in .env or shell}
       COMPANY_EMAIL_DOMAINS: ${COMPANY_EMAIL_DOMAINS:-company.name}
       API_BASE_URL: http://api:8080
+      API_ID_TOKEN_AUDIENCE: ${API_ID_TOKEN_AUDIENCE:-}
       WEB_BASE_URL: ${WEB_BASE_URL:-http://localhost:3000}
     ports:
       - "3000:3000"

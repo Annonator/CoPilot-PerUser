@@ -161,6 +161,43 @@ the same value, and it should be a long random string:
 APP_TOKEN_SECRET=replace-with-output-of-openssl-rand-base64-32
 ```
 
+### Optional Cloud Run IAM for the API
+
+By default, the web service calls the API with only the internal app JWT in the
+standard `Authorization` header. This keeps host development, Docker Compose,
+and non-GCP deployments portable.
+
+When deploying the API as a private Cloud Run service, set this web-only
+environment variable:
+
+```env
+API_ID_TOKEN_AUDIENCE=https://your-api-service-xyz.a.run.app
+```
+
+When `API_ID_TOKEN_AUDIENCE` is set, the web service fetches a Google-signed ID
+token from the Cloud Run metadata server and sends it as
+`X-Serverless-Authorization`. The existing internal app JWT remains in
+`Authorization`, so the Go API continues to derive the user email from the
+signed app token.
+
+For Cloud Run, the audience must be the receiving API service URL, not a custom
+domain or a path-specific URL. Leave `API_ID_TOKEN_AUDIENCE` empty outside
+Cloud Run; the metadata server is not available on a local machine.
+
+Example hardening commands:
+
+```bash
+gcloud run deploy copilot-usage-api \
+  --no-allow-unauthenticated
+
+gcloud run services add-iam-policy-binding copilot-usage-api \
+  --member="serviceAccount:copilot-usage-web@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+  --role="roles/run.invoker"
+
+gcloud run services update copilot-usage-web \
+  --update-env-vars "API_ID_TOKEN_AUDIENCE=https://your-api-service-xyz.a.run.app"
+```
+
 ### GitHub Identity Mapping
 
 The app must map each authenticated company email address to a GitHub login

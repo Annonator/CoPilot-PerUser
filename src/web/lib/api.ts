@@ -1,5 +1,6 @@
 import "server-only";
 
+import { cloudRunIdentityAuthorizationHeader } from "./cloud-run-id-token";
 import type { MonthlyUsage } from "./usage-types";
 
 type GetUsageInput = {
@@ -25,11 +26,17 @@ export async function getMonthlyUsage({ token, year, month }: GetUsageInput): Pr
   url.searchParams.set("year", String(year));
   url.searchParams.set("month", String(month));
 
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    Accept: "application/json"
+  };
+  const cloudRunAuthorization = await cloudRunIdentityAuthorizationHeader();
+  if (cloudRunAuthorization) {
+    headers["X-Serverless-Authorization"] = cloudRunAuthorization;
+  }
+
   const response = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: "application/json"
-    },
+    headers,
     cache: "no-store"
   });
 

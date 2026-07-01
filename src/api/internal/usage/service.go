@@ -110,13 +110,12 @@ func (s *Service) GetMonthlyUsage(ctx context.Context, email string, year, month
 		year:       year,
 		month:      month,
 	}
-	if usage, ok := s.cached(key); ok {
+	usage, cached, call, owner := s.beginFetch(key)
+	if cached {
 		usage.User.Email = email
 		usage.SourceMetadata.Cached = true
 		return usage, nil
 	}
-
-	call, owner := s.getInflight(key)
 	if !owner {
 		<-call.done
 		if call.err != nil {
@@ -127,7 +126,7 @@ func (s *Service) GetMonthlyUsage(ctx context.Context, email string, year, month
 		return usage, nil
 	}
 
-	usage, err := s.fetchMonthlyUsage(ctx, email, login, year, month)
+	usage, err = s.fetchMonthlyUsage(ctx, email, login, year, month)
 	if err == nil {
 		s.store(key, usage)
 	}
@@ -200,23 +199,27 @@ func serialMonth(year, month int) int {
 	return year*12 + month - 1
 }
 
-func (s *Service) cached(key cacheKey) (MonthlyUsage, bool) {
-	if s.cacheTTL <= 0 {
-		return MonthlyUsage{}, false
-	}
-
+func (s *Service) beginFetch(key cacheKey) (MonthlyUsage, bool, *inflightCall, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	entry, ok := s.cache[key]
-	if !ok {
-		return MonthlyUsage{}, false
+	if s.cacheTTL > 0 {
+		entry, ok := s.cache[key]
+		if ok {
+			if s.now().Before(entry.expiresAt) {
+				return cloneMonthlyUsage(entry.usage), true, nil, false
+			}
+			delete(s.cache, key)
+		}
 	}
-	if !s.now().Before(entry.expiresAt) {
-		delete(s.cache, key)
-		return MonthlyUsage{}, false
+
+	if call, ok := s.inflight[key]; ok {
+		return MonthlyUsage{}, false, call, false
 	}
-	return cloneMonthlyUsage(entry.usage), true
+
+	call := &inflightCall{done: make(chan struct{})}
+	s.inflight[key] = call
+	return MonthlyUsage{}, false, call, true
 }
 
 func (s *Service) store(key cacheKey, usage MonthlyUsage) {
@@ -231,18 +234,6 @@ func (s *Service) store(key cacheKey, usage MonthlyUsage) {
 		expiresAt: s.now().Add(s.cacheTTL),
 		usage:     cloneMonthlyUsage(usage),
 	}
-}
-
-func (s *Service) getInflight(key cacheKey) (*inflightCall, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if call, ok := s.inflight[key]; ok {
-		return call, false
-	}
-	call := &inflightCall{done: make(chan struct{})}
-	s.inflight[key] = call
-	return call, true
 }
 
 func (s *Service) finishInflight(key cacheKey, call *inflightCall, usage MonthlyUsage, err error) {

@@ -6,6 +6,7 @@ import { SignOutButton } from "@/components/sign-out-button";
 import { UsageDashboard } from "@/components/usage-dashboard";
 import { createAppToken } from "@/lib/app-token";
 import { getMonthlyUsage, UsageApiError } from "@/lib/api";
+import type { MonthlyUsage } from "@/lib/usage-types";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -44,16 +45,16 @@ export default async function HomePage({
   const resolvedSearchParams = (await searchParams) ?? {};
   const { year, month } = periodFromSearchParams(resolvedSearchParams);
 
-  let content: React.ReactNode;
+  let usage: MonthlyUsage | undefined;
+  let errorMessage: string | undefined;
   try {
     const token = await createAppToken({
       email: session.user.email,
       name: session.user.name
     });
-    const usage = await getMonthlyUsage({ token, year, month });
-    content = <UsageDashboard usage={usage} />;
+    usage = await getMonthlyUsage({ token, year, month });
   } catch (error) {
-    content = <UsageDashboard error={usageErrorMessage(error)} />;
+    errorMessage = usageErrorMessage(error);
   }
 
   return (
@@ -64,7 +65,7 @@ export default async function HomePage({
         </Link>
         <SignOutButton />
       </nav>
-      {content}
+      {errorMessage ? <UsageDashboard error={errorMessage} /> : <UsageDashboard usage={usage} />}
     </>
   );
 }

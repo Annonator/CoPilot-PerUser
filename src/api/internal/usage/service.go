@@ -148,6 +148,11 @@ func (s *Service) fetchMonthlyUsage(ctx context.Context, email, login string, ye
 		return MonthlyUsage{}, fmt.Errorf("get monthly AI credit usage: %w", err)
 	}
 
+	daily, err := s.fetchDailyUsage(ctx, login, year, month)
+	if err != nil {
+		return MonthlyUsage{}, err
+	}
+
 	models := normalizeModels(monthlyReport.UsageItems)
 	usage := MonthlyUsage{
 		Period: Period{
@@ -160,7 +165,7 @@ func (s *Service) fetchMonthlyUsage(ctx context.Context, email, login string, ye
 		},
 		Totals: sumModels(models),
 		Models: models,
-		Daily:  []DailyUsage{},
+		Daily:  daily,
 		SourceMetadata: SourceMetadata{
 			Enterprise: s.enterprise,
 			Source:     sourceGitHubEnterpriseBillingAICreditUsage,
@@ -168,6 +173,39 @@ func (s *Service) fetchMonthlyUsage(ctx context.Context, email, login string, ye
 		},
 	}
 	return usage, nil
+}
+
+func (s *Service) fetchDailyUsage(ctx context.Context, login string, year, month int) ([]DailyUsage, error) {
+	days := s.daysToFetch(year, month)
+	daily := make([]DailyUsage, 0, days)
+	for day := 1; day <= days; day++ {
+		report, err := s.billing.GetAICreditUsage(ctx, gh.AICreditUsageRequest{
+			Enterprise: s.enterprise,
+			User:       login,
+			Year:       year,
+			Month:      month,
+			Day:        day,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("get daily AI credit usage for %04d-%02d-%02d: %w", year, month, day, err)
+		}
+
+		models := normalizeModels(report.UsageItems)
+		daily = append(daily, DailyUsage{
+			Day:    fmt.Sprintf("%04d-%02d-%02d", year, month, day),
+			Models: models,
+			Totals: sumModels(models),
+		})
+	}
+	return daily, nil
+}
+
+func (s *Service) daysToFetch(year, month int) int {
+	now := s.now().UTC()
+	if now.Year() == year && int(now.Month()) == month {
+		return now.Day()
+	}
+	return time.Date(year, time.Month(month)+1, 0, 0, 0, 0, 0, time.UTC).Day()
 }
 
 func ValidateReportingPeriod(year, month int, now time.Time, reportingWindowMonths int) error {

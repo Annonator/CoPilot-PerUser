@@ -125,6 +125,59 @@ func TestGitHubSAMLResolverReturnsNotFoundForNoMatch(t *testing.T) {
 	}
 }
 
+func TestGitHubSAMLResolverIncludesLinkedIdentitiesOutsideMembersOnlyFilter(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request graphQLRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+
+		if strings.Contains(request.Query, "membersOnly: true") {
+			writeGraphQLResponse(t, w, `{
+				"data": {
+					"enterprise": {
+						"ownerInfo": {
+							"samlIdentityProvider": {
+								"externalIdentities": {"nodes": []}
+							}
+						}
+					}
+				}
+			}`)
+			return
+		}
+
+		writeGraphQLResponse(t, w, `{
+			"data": {
+				"enterprise": {
+					"ownerInfo": {
+						"samlIdentityProvider": {
+							"externalIdentities": {
+								"nodes": [
+									{
+										"samlIdentity": {"nameId": "person@nitrado.net"},
+										"user": {"login": "LinkedUser"}
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		}`)
+	}))
+	defer server.Close()
+
+	resolver := NewGitHubSAMLResolver(server.URL, "ghp_secret", "marbis", time.Minute, server.Client())
+	login, err := resolver.ResolveGitHubLogin(context.Background(), "person@nitrado.net")
+	if err != nil {
+		t.Fatalf("ResolveGitHubLogin() error = %v", err)
+	}
+	if login != "LinkedUser" {
+		t.Fatalf("login = %q", login)
+	}
+}
+
 func TestGitHubSAMLResolverReturnsNotFoundForMissingSAMLProvider(t *testing.T) {
 	resolver := newTestGitHubSAMLResolver(t, `{
 		"data": {

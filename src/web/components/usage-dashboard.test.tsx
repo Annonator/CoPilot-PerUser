@@ -122,31 +122,56 @@ describe("UsageDashboard", () => {
     expect(modelHeading).toBeInTheDocument();
     expect(modelHeading.compareDocumentPosition(dailyHeading)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
 
-    expect(screen.getByText("Jun 2026")).toBeInTheDocument();
+    expect(screen.getAllByText("Jun 2026").length).toBeGreaterThan(0);
     expect(screen.getByText("@ana")).toBeInTheDocument();
     expect(screen.getByText("ana@company.name")).toBeInTheDocument();
-    expect(screen.getByText("1,250")).toBeInTheDocument();
-    expect(screen.getByText("320")).toBeInTheDocument();
-    expect(screen.getByText("$15.70")).toBeInTheDocument();
-    expect(screen.getByText("$3.20")).toBeInTheDocument();
+
+    const summary = screen.getByRole("complementary", { name: /usage summary/i });
+    expect(within(summary).getByText("Included credits")).toBeInTheDocument();
+    expect(within(summary).getByText("Additional credits")).toBeInTheDocument();
+    expect(within(summary).getByText("Gross amount")).toBeInTheDocument();
+    expect(within(summary).getByText("Additional usage")).toBeInTheDocument();
+    expect(within(summary).getByText("1,250")).toBeInTheDocument();
+    expect(within(summary).getByText("320")).toBeInTheDocument();
+    expect(within(summary).getByText("$15.70")).toBeInTheDocument();
+    expect(within(summary).getByText("$3.20")).toBeInTheDocument();
   });
 
   it("renders model values without depending on horizontal table scrolling", () => {
     render(<UsageDashboard usage={usage} />);
 
     const modelRegion = screen.getByRole("region", { name: /usage by model/i });
-    expect(within(modelRegion).getByText("gpt-4.1")).toBeInTheDocument();
-    expect(within(modelRegion).getByText("claude-3.7-sonnet")).toBeInTheDocument();
-    expect(within(modelRegion).getByText("Included credits")).toBeInTheDocument();
-    expect(within(modelRegion).getByText("Additional credits")).toBeInTheDocument();
-    expect(within(modelRegion).getByText("Gross amount")).toBeInTheDocument();
-    expect(within(modelRegion).getByText("Additional usage")).toBeInTheDocument();
-    expect(within(modelRegion).getByText("Price per credit")).toBeInTheDocument();
-    expect(within(modelRegion).getByText("700")).toBeInTheDocument();
-    expect(within(modelRegion).getByText("80")).toBeInTheDocument();
-    expect(within(modelRegion).getByText("$7.80")).toBeInTheDocument();
-    expect(within(modelRegion).getByText("$0.80")).toBeInTheDocument();
-    expect(within(modelRegion).getAllByText("$0.01")).toHaveLength(2);
+    const table = within(modelRegion).getByRole("table", { name: "Usage by model" });
+
+    for (const header of [
+      "Model",
+      "Included credits",
+      "Additional credits",
+      "Gross amount",
+      "Additional usage",
+      "Price per credit"
+    ]) {
+      expect(within(table).getByRole("columnheader", { name: header })).toBeInTheDocument();
+    }
+
+    const rows = within(table).getAllByRole("row");
+    expect(rows).toHaveLength(3);
+    expect(within(rows[1]).getByRole("rowheader")).toHaveTextContent("gpt-4.1");
+    expect(within(rows[1]).getAllByRole("cell").map((cell) => cell.textContent)).toEqual([
+      "700",
+      "80",
+      "$7.80",
+      "$0.80",
+      "$0.01"
+    ]);
+    expect(within(rows[2]).getByRole("rowheader")).toHaveTextContent("claude-3.7-sonnet");
+    expect(within(rows[2]).getAllByRole("cell").map((cell) => cell.textContent)).toEqual([
+      "550",
+      "240",
+      "$7.90",
+      "$2.40",
+      "$0.01"
+    ]);
     expect(document.querySelector(".table-wrap")).not.toBeInTheDocument();
   });
 
@@ -162,8 +187,19 @@ describe("UsageDashboard", () => {
     expect(bars[1]).toHaveAccessibleName(
       "Jun 2: 350 included credits, 220 additional credits, 570 total credits, $2.20 additional usage"
     );
-    expect(within(daily).getByText("Total credits")).toBeInTheDocument();
-    expect(within(daily).getByText("1,000")).toBeInTheDocument();
+    expect(within(daily).getAllByText("Included credits").length).toBeGreaterThan(0);
+    expect(within(daily).getAllByText("Additional credits").length).toBeGreaterThan(0);
+    expect(within(daily).getAllByText("Total credits").length).toBeGreaterThan(0);
+    expect(within(daily).queryByRole("tooltip")).not.toBeInTheDocument();
+
+    fireEvent.focus(bars[1]);
+
+    const selectedDay = within(daily).getByRole("region", { name: /selected day usage/i });
+    expect(within(selectedDay).getByText("Jun 2")).toBeInTheDocument();
+    expect(within(selectedDay).getByText("350")).toBeInTheDocument();
+    expect(within(selectedDay).getByText("220")).toBeInTheDocument();
+    expect(within(selectedDay).getByText("570")).toBeInTheDocument();
+    expect(within(selectedDay).getByText("$2.20")).toBeInTheDocument();
   });
 
   it("switches and persists the theme preference", () => {
@@ -183,7 +219,7 @@ describe("UsageDashboard", () => {
     const daily = screen.getByRole("region", { name: /daily usage/i });
     expect(within(daily).getByText("No daily usage")).toBeInTheDocument();
 
-    const table = screen.getByRole("table", { name: /model breakdown/i });
+    const table = screen.getByRole("table", { name: /usage by model/i });
     expect(within(table).getByText("No model usage")).toBeInTheDocument();
   });
 });

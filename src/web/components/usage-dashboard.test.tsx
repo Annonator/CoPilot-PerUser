@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
-import { render, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { UsageDashboard } from "./usage-dashboard";
 import type { MonthlyUsage } from "@/lib/usage-types";
@@ -86,30 +86,95 @@ const usage = {
 } satisfies MonthlyUsage;
 
 describe("UsageDashboard", () => {
-  it("renders usage totals, daily rows, and model breakdown rows", () => {
+  beforeEach(() => {
+    const storage = new Map<string, string>();
+    const localStorageMock = {
+      getItem: vi.fn((key: string) => storage.get(key) ?? null),
+      setItem: vi.fn((key: string, value: string) => {
+        storage.set(key, value);
+      }),
+      removeItem: vi.fn((key: string) => {
+        storage.delete(key);
+      }),
+      clear: vi.fn(() => {
+        storage.clear();
+      })
+    } satisfies Pick<Storage, "getItem" | "setItem" | "removeItem" | "clear">;
+
+    vi.stubGlobal("localStorage", localStorageMock);
+    document.documentElement.removeAttribute("data-theme");
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("renders the compact dashboard shell with summary rail and model-first workspace", () => {
     render(<UsageDashboard usage={usage} />);
 
-    expect(screen.getByRole("heading", { name: "2026-06" })).toBeInTheDocument();
+    expect(screen.getByRole("main", { name: /copilot usage dashboard/i })).toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: /usage summary/i })).toBeInTheDocument();
+
+    const modelHeading = screen.getByRole("heading", { name: "Usage by model" });
+    const dailyHeading = screen.getByRole("heading", { name: "Daily usage" });
+    expect(modelHeading).toBeInTheDocument();
+    expect(modelHeading.compareDocumentPosition(dailyHeading)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+
+    expect(screen.getByText("Jun 2026")).toBeInTheDocument();
     expect(screen.getByText("@ana")).toBeInTheDocument();
     expect(screen.getByText("ana@company.name")).toBeInTheDocument();
     expect(screen.getByText("1,250")).toBeInTheDocument();
     expect(screen.getByText("320")).toBeInTheDocument();
     expect(screen.getByText("$15.70")).toBeInTheDocument();
     expect(screen.getByText("$3.20")).toBeInTheDocument();
-    expect(screen.queryByText("Price per credit $0.00")).not.toBeInTheDocument();
+  });
+
+  it("renders model values without depending on horizontal table scrolling", () => {
+    render(<UsageDashboard usage={usage} />);
+
+    const modelRegion = screen.getByRole("region", { name: /usage by model/i });
+    expect(within(modelRegion).getByText("gpt-4.1")).toBeInTheDocument();
+    expect(within(modelRegion).getByText("claude-3.7-sonnet")).toBeInTheDocument();
+    expect(within(modelRegion).getByText("Included credits")).toBeInTheDocument();
+    expect(within(modelRegion).getByText("Additional credits")).toBeInTheDocument();
+    expect(within(modelRegion).getByText("Gross amount")).toBeInTheDocument();
+    expect(within(modelRegion).getByText("Additional usage")).toBeInTheDocument();
+    expect(within(modelRegion).getByText("Price per credit")).toBeInTheDocument();
+    expect(within(modelRegion).getByText("700")).toBeInTheDocument();
+    expect(within(modelRegion).getByText("80")).toBeInTheDocument();
+    expect(within(modelRegion).getByText("$7.80")).toBeInTheDocument();
+    expect(within(modelRegion).getByText("$0.80")).toBeInTheDocument();
+    expect(within(modelRegion).getAllByText("$0.01")).toHaveLength(2);
+    expect(document.querySelector(".table-wrap")).not.toBeInTheDocument();
+  });
+
+  it("renders one accessible stacked daily bar per day with exact tooltip data", () => {
+    render(<UsageDashboard usage={usage} />);
 
     const daily = screen.getByRole("region", { name: /daily usage/i });
-    expect(within(daily).getByText("Jun 1")).toBeInTheDocument();
-    expect(within(daily).getByText("1,000 credits")).toBeInTheDocument();
-    expect(within(daily).getByText("$1.00 additional usage")).toBeInTheDocument();
-    expect(within(daily).getByText("Jun 2")).toBeInTheDocument();
-    expect(within(daily).getByText("570 credits")).toBeInTheDocument();
-    expect(within(daily).getByText("$2.20 additional usage")).toBeInTheDocument();
+    const bars = within(daily).getAllByRole("button");
+    expect(bars).toHaveLength(2);
+    expect(bars[0]).toHaveAccessibleName(
+      "Jun 1: 900 included credits, 100 additional credits, 1,000 total credits, $1.00 additional usage"
+    );
+    expect(bars[1]).toHaveAccessibleName(
+      "Jun 2: 350 included credits, 220 additional credits, 570 total credits, $2.20 additional usage"
+    );
+    expect(within(daily).getByText("Total credits")).toBeInTheDocument();
+    expect(within(daily).getByText("1,000")).toBeInTheDocument();
+  });
 
-    const table = screen.getByRole("table", { name: /model breakdown/i });
-    expect(within(table).getByRole("columnheader", { name: /price per credit/i })).toBeInTheDocument();
-    expect(within(table).getByRole("row", { name: /gpt-4.1 700 80 \$7.80 \$0.80 \$0.01/i })).toBeInTheDocument();
-    expect(within(table).getByRole("row", { name: /claude-3.7-sonnet 550 240 \$7.90 \$2.40 \$0.01/i })).toBeInTheDocument();
+  it("switches and persists the theme preference", () => {
+    render(<UsageDashboard usage={usage} />);
+
+    const dark = screen.getByRole("button", { name: "Dark" });
+    fireEvent.click(dark);
+
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(dark).toHaveAttribute("aria-pressed", "true");
+    expect(localStorage.setItem).toHaveBeenCalledWith("copilot-usage-theme", "dark");
   });
 
   it("renders partial empty states for missing daily or model usage", () => {

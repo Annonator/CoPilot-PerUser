@@ -19,3 +19,4 @@ src/api/server
 
 # Docker and tooling
 .docker/
+.superpowers/

@@ -16,7 +16,7 @@ query ResolveGitHubLogin($enterprise: String!, $email: String!) {
   enterprise(slug: $enterprise) {
     ownerInfo {
       samlIdentityProvider {
-        externalIdentities(first: 2, userName: $email, membersOnly: true) {
+        externalIdentities(first: 2, userName: $email, membersOnly: false) {
           nodes {
             samlIdentity {
               nameId

@@ -115,7 +115,7 @@ Normalize GitHub billing fields to the screenshot vocabulary:
 - `additionalUsage`: `netAmount`
 - `pricePerCredit`: `pricePerUnit`, expected to be `0.01`
 
-Default monthly usage responses include monthly totals and model breakdowns only. The backend should not eagerly fan out one privileged GitHub billing call per day for normal dashboard loads. The `daily` response field remains an empty array until a dedicated drill-down API is added with its own authorization and request budget.
+Default monthly usage responses include monthly totals, model breakdowns, and daily rows. The backend fetches the monthly user-filtered report first, then uses day-filtered GitHub billing calls for each elapsed day in the requested month so the dashboard can render the daily trend without exposing broader enterprise data.
 
 ## Backend API
 

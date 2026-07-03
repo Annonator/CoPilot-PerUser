@@ -34,11 +34,12 @@ func (f *fakeResolver) ResolveGitHubLogin(_ context.Context, email string) (stri
 }
 
 type fakeBilling struct {
-	mu       sync.Mutex
-	requests []gh.AICreditUsageRequest
-	report   gh.AICreditUsageReport
-	err      error
-	wait     <-chan struct{}
+	mu           sync.Mutex
+	requests     []gh.AICreditUsageRequest
+	report       gh.AICreditUsageReport
+	reportsByDay map[int]gh.AICreditUsageReport
+	err          error
+	wait         <-chan struct{}
 }
 
 func (f *fakeBilling) GetAICreditUsage(_ context.Context, req gh.AICreditUsageRequest) (gh.AICreditUsageReport, error) {
@@ -50,6 +51,12 @@ func (f *fakeBilling) GetAICreditUsage(_ context.Context, req gh.AICreditUsageRe
 	}
 	if f.err != nil {
 		return gh.AICreditUsageReport{}, f.err
+	}
+	if req.Day > 0 {
+		if f.reportsByDay != nil {
+			return f.reportsByDay[req.Day], nil
+		}
+		return gh.AICreditUsageReport{}, nil
 	}
 	return f.report, nil
 }
@@ -70,12 +77,13 @@ func TestServiceReturnsNormalizedUserUsage(t *testing.T) {
 	}
 	billing := &fakeBilling{report: report}
 	resolver := &fakeResolver{login: "Annonator"}
+	now := time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC)
 	service := NewService(ServiceConfig{
 		Enterprise: "marbis",
 		Resolver:   resolver,
 		Billing:    billing,
 		CacheTTL:   time.Minute,
-		Now:        func() time.Time { return time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC) },
+		Now:        func() time.Time { return now },
 	})
 
 	result, err := service.GetMonthlyUsage(context.Background(), "andreas.pohl@nitrado.net", 2026, 6)
@@ -112,10 +120,10 @@ func TestServiceReturnsNormalizedUserUsage(t *testing.T) {
 	if result.Models[0].PricePerCredit != 0.01 {
 		t.Fatalf("first model PricePerCredit = %.2f", result.Models[0].PricePerCredit)
 	}
-	if len(result.Daily) != 0 {
+	if len(result.Daily) != now.Day() {
 		t.Fatalf("Daily length = %d", len(result.Daily))
 	}
-	if len(billing.requests) != 1 {
+	if len(billing.requests) != expectedBillingRequestCount(now, 2026, 6) {
 		t.Fatalf("billing request count = %d", len(billing.requests))
 	}
 	if billing.requests[0].User != "Annonator" {
@@ -143,28 +151,106 @@ func TestServiceReturnsNormalizedUserUsage(t *testing.T) {
 	}
 }
 
-func TestServiceUsesMonthlySummaryWithoutEagerDailyFanOut(t *testing.T) {
+func TestServiceFetchesDailyUsageThroughElapsedCurrentMonthDays(t *testing.T) {
 	billing := &fakeBilling{}
+	now := time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC)
 	service := NewService(ServiceConfig{
 		Enterprise: "marbis",
 		Resolver:   &fakeResolver{login: "Annonator"},
 		Billing:    billing,
 		CacheTTL:   time.Minute,
-		Now:        func() time.Time { return time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC) },
+		Now:        func() time.Time { return now },
 	})
 
 	result, err := service.GetMonthlyUsage(context.Background(), "andreas.pohl@nitrado.net", 2026, 6)
 	if err != nil {
 		t.Fatalf("GetMonthlyUsage() error = %v", err)
 	}
-	if len(result.Daily) != 0 {
-		t.Fatalf("Daily length = %d, want monthly summary without daily fan-out", len(result.Daily))
+	if len(result.Daily) != now.Day() {
+		t.Fatalf("Daily length = %d, want elapsed days", len(result.Daily))
 	}
-	if billing.requestCount() != 1 {
-		t.Fatalf("billing request count = %d, want one monthly request", billing.requestCount())
+	if billing.requestCount() != expectedBillingRequestCount(now, 2026, 6) {
+		t.Fatalf("billing request count = %d, want monthly plus elapsed daily requests", billing.requestCount())
 	}
 	if billing.requests[0].Day != 0 {
 		t.Fatalf("billing request day = %d, want monthly request", billing.requests[0].Day)
+	}
+	if got := billing.requests[len(billing.requests)-1].Day; got != now.Day() {
+		t.Fatalf("last daily request day = %d, want %d", got, now.Day())
+	}
+}
+
+func TestServicePopulatesDailyUsageFromDayFilteredBilling(t *testing.T) {
+	monthlyReport := gh.AICreditUsageReport{
+		Enterprise: "marbis",
+		UsageItems: []gh.AICreditUsageItem{
+			{Model: "GPT-5.5", PricePerUnit: 0.01, DiscountQuantity: 30, NetQuantity: 12, GrossAmount: 0.42, NetAmount: 0.12},
+		},
+	}
+	billing := &fakeBilling{
+		report: monthlyReport,
+		reportsByDay: map[int]gh.AICreditUsageReport{
+			1: {
+				UsageItems: []gh.AICreditUsageItem{
+					{Model: "GPT-5.5", PricePerUnit: 0.01, DiscountQuantity: 10, NetQuantity: 2, GrossAmount: 0.12, NetAmount: 0.02},
+				},
+			},
+			2: {
+				UsageItems: []gh.AICreditUsageItem{
+					{Model: "Claude", PricePerUnit: 0.01, DiscountQuantity: 3, NetQuantity: 4, GrossAmount: 0.07, NetAmount: 0.04},
+				},
+			},
+			3: {},
+		},
+	}
+	service := NewService(ServiceConfig{
+		Enterprise: "marbis",
+		Resolver:   &fakeResolver{login: "brendan"},
+		Billing:    billing,
+		CacheTTL:   time.Minute,
+		Now:        func() time.Time { return time.Date(2026, 6, 3, 12, 0, 0, 0, time.UTC) },
+	})
+
+	result, err := service.GetMonthlyUsage(context.Background(), "brendan@nitrado.net", 2026, 6)
+	if err != nil {
+		t.Fatalf("GetMonthlyUsage() error = %v", err)
+	}
+	if len(result.Daily) != 3 {
+		t.Fatalf("Daily length = %d, want one row per elapsed day", len(result.Daily))
+	}
+	if got := result.Daily[0].Day; got != "2026-06-01" {
+		t.Fatalf("first daily day = %q", got)
+	}
+	if got := result.Daily[0].Totals.IncludedCredits; got != 10 {
+		t.Fatalf("first daily included credits = %.2f", got)
+	}
+	if got := result.Daily[0].Totals.AdditionalCredits; got != 2 {
+		t.Fatalf("first daily additional credits = %.2f", got)
+	}
+	if got := result.Daily[1].Day; got != "2026-06-02" {
+		t.Fatalf("second daily day = %q", got)
+	}
+	if got := result.Daily[1].Totals.AdditionalUsage; got != 0.04 {
+		t.Fatalf("second daily additional usage = %.2f", got)
+	}
+	if got := result.Daily[2].Day; got != "2026-06-03" {
+		t.Fatalf("third daily day = %q", got)
+	}
+	if result.Daily[2].Totals != (UsageTotals{}) {
+		t.Fatalf("third daily totals = %#v, want empty usage", result.Daily[2].Totals)
+	}
+	if billing.requestCount() != 4 {
+		t.Fatalf("billing request count = %d, want monthly plus elapsed daily requests", billing.requestCount())
+	}
+	for i, req := range billing.requests {
+		if req.User != "brendan" {
+			t.Fatalf("billing request %d user = %q", i, req.User)
+		}
+	}
+	for day := 1; day <= 3; day++ {
+		if got := billing.requests[day].Day; got != day {
+			t.Fatalf("daily request %d day = %d", day, got)
+		}
 	}
 }
 
@@ -177,12 +263,13 @@ func TestServiceCachesByEnterpriseLoginAndPeriod(t *testing.T) {
 	}
 	billing := &fakeBilling{report: report}
 	resolver := &fakeResolver{login: "Annonator"}
+	now := time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC)
 	service := NewService(ServiceConfig{
 		Enterprise: "marbis",
 		Resolver:   resolver,
 		Billing:    billing,
 		CacheTTL:   time.Minute,
-		Now:        func() time.Time { return time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC) },
+		Now:        func() time.Time { return now },
 	})
 
 	first, err := service.GetMonthlyUsage(context.Background(), "andreas.pohl@nitrado.net", 2026, 5)
@@ -193,7 +280,7 @@ func TestServiceCachesByEnterpriseLoginAndPeriod(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second GetMonthlyUsage() error = %v", err)
 	}
-	if len(billing.requests) != 1 {
+	if len(billing.requests) != expectedBillingRequestCount(now, 2026, 5) {
 		t.Fatalf("billing request count = %d", len(billing.requests))
 	}
 	if first.SourceMetadata.Cached {
@@ -216,12 +303,13 @@ func TestServiceCachesByEnterpriseLoginAndPeriod(t *testing.T) {
 func TestServiceCoalescesConcurrentRequestsForSameLoginAndPeriod(t *testing.T) {
 	releaseBilling := make(chan struct{})
 	billing := &fakeBilling{wait: releaseBilling}
+	now := time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC)
 	service := NewService(ServiceConfig{
 		Enterprise: "marbis",
 		Resolver:   &fakeResolver{login: "Annonator"},
 		Billing:    billing,
 		CacheTTL:   time.Minute,
-		Now:        func() time.Time { return time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC) },
+		Now:        func() time.Time { return now },
 	})
 
 	const requestCount = 8
@@ -246,8 +334,8 @@ func TestServiceCoalescesConcurrentRequestsForSameLoginAndPeriod(t *testing.T) {
 			t.Fatalf("GetMonthlyUsage() error = %v", err)
 		}
 	}
-	if billing.requestCount() != 1 {
-		t.Fatalf("billing request count = %d, want one coalesced monthly request", billing.requestCount())
+	if billing.requestCount() != expectedBillingRequestCount(now, 2026, 6) {
+		t.Fatalf("billing request count = %d, want one coalesced monthly plus daily fetch", billing.requestCount())
 	}
 }
 
@@ -401,6 +489,7 @@ func TestServicePropagatesMonthlyBillingFailure(t *testing.T) {
 
 func TestServiceRefetchesAfterCacheExpiry(t *testing.T) {
 	now := time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC)
+	firstNow := now
 	billing := &fakeBilling{}
 	service := NewService(ServiceConfig{
 		Enterprise: "marbis",
@@ -419,7 +508,7 @@ func TestServiceRefetchesAfterCacheExpiry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second GetMonthlyUsage() error = %v", err)
 	}
-	if len(billing.requests) != 2 {
+	if len(billing.requests) != 2*expectedBillingRequestCount(firstNow, 2026, 6) {
 		t.Fatalf("billing request count = %d", len(billing.requests))
 	}
 	if second.SourceMetadata.Cached {
@@ -432,6 +521,7 @@ func TestServiceRefetchesAfterCacheExpiry(t *testing.T) {
 
 func TestServiceSeparatesCacheByUserAndMonth(t *testing.T) {
 	billing := &fakeBilling{}
+	now := time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC)
 	resolver := &fakeResolver{loginsByEmail: map[string]string{
 		"andreas.pohl@nitrado.net": "Annonator",
 		"ada@nitrado.net":          "Ada",
@@ -441,7 +531,7 @@ func TestServiceSeparatesCacheByUserAndMonth(t *testing.T) {
 		Resolver:   resolver,
 		Billing:    billing,
 		CacheTTL:   time.Minute,
-		Now:        func() time.Time { return time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC) },
+		Now:        func() time.Time { return now },
 	})
 
 	cases := []struct {
@@ -464,13 +554,39 @@ func TestServiceSeparatesCacheByUserAndMonth(t *testing.T) {
 		}
 	}
 
-	if len(billing.requests) != 3 {
+	expectedRequests := expectedBillingRequestCount(now, 2026, 5) +
+		expectedBillingRequestCount(now, 2026, 5) +
+		expectedBillingRequestCount(now, 2026, 6)
+	if len(billing.requests) != expectedRequests {
 		t.Fatalf("billing request count = %d", len(billing.requests))
 	}
-	if got := fmt.Sprintf("%s/%d", billing.requests[1].User, billing.requests[1].Month); got != "Ada/5" {
+	monthlyRequests := requestsForDay(billing.requests, 0)
+	if len(monthlyRequests) != 3 {
+		t.Fatalf("monthly billing request count = %d", len(monthlyRequests))
+	}
+	if got := fmt.Sprintf("%s/%d", monthlyRequests[1].User, monthlyRequests[1].Month); got != "Ada/5" {
 		t.Fatalf("first different-user request = %s", got)
 	}
-	if got := fmt.Sprintf("%s/%d", billing.requests[2].User, billing.requests[2].Month); got != "Annonator/6" {
+	if got := fmt.Sprintf("%s/%d", monthlyRequests[2].User, monthlyRequests[2].Month); got != "Annonator/6" {
 		t.Fatalf("first different-month request = %s", got)
 	}
+}
+
+func expectedBillingRequestCount(now time.Time, year, month int) int {
+	now = now.UTC()
+	days := time.Date(year, time.Month(month)+1, 0, 0, 0, 0, 0, time.UTC).Day()
+	if now.Year() == year && int(now.Month()) == month {
+		days = now.Day()
+	}
+	return 1 + days
+}
+
+func requestsForDay(requests []gh.AICreditUsageRequest, day int) []gh.AICreditUsageRequest {
+	filtered := make([]gh.AICreditUsageRequest, 0)
+	for _, request := range requests {
+		if request.Day == day {
+			filtered = append(filtered, request)
+		}
+	}
+	return filtered
 }

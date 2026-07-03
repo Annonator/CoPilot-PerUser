@@ -265,9 +265,9 @@ Requests outside the configured window return HTTP `400` with JSON error
 `period_out_of_range`. Malformed periods and future periods return HTTP `400`
 with JSON error `bad_request`.
 
-The default monthly usage response includes monthly totals and model breakdowns.
-The `daily` field is returned as an empty array until a dedicated drill-down API
-is added.
+The monthly usage response includes monthly totals, model breakdowns, and daily
+rows populated from day-filtered GitHub billing calls. The API caches the
+normalized response for the configured short TTL.
 
 ## Host Development
 

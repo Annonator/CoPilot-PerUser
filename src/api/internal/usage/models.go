@@ -1,13 +1,15 @@
 package usage
 
+import "copilot-per-user/api/internal/budget"
+
 type MonthlyUsage struct {
-	Period         Period         `json:"period"`
-	User           User           `json:"user"`
-	Totals         UsageTotals    `json:"totals"`
-	Budget         *UsageBudget   `json:"budget,omitempty"`
-	Models         []ModelUsage   `json:"models"`
-	Daily          []DailyUsage   `json:"daily"`
-	SourceMetadata SourceMetadata `json:"sourceMetadata"`
+	Period         Period             `json:"period"`
+	User           User               `json:"user"`
+	Totals         UsageTotals        `json:"totals"`
+	Budget         *budget.UserBudget `json:"budget,omitempty"`
+	Models         []ModelUsage       `json:"models"`
+	Daily          []DailyUsage       `json:"daily"`
+	SourceMetadata SourceMetadata     `json:"sourceMetadata"`
 }
 
 type Period struct {
@@ -25,10 +27,6 @@ type UsageTotals struct {
 	AdditionalCredits float64 `json:"additionalCredits"`
 	GrossAmount       float64 `json:"grossAmount"`
 	AdditionalUsage   float64 `json:"additionalUsage"`
-}
-
-type UsageBudget struct {
-	MonthlyIncludedCredits float64 `json:"monthlyIncludedCredits"`
 }
 
 type ModelUsage struct {

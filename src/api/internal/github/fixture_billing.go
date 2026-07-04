@@ -31,3 +31,15 @@ func (c *FixtureBillingClient) GetAICreditUsage(_ context.Context, usageRequest 
 	report.Enterprise = usageRequest.Enterprise
 	return report, nil
 }
+
+func (c *FixtureBillingClient) ListBudgets(_ context.Context, _ BudgetListRequest) (BudgetListResponse, error) {
+	return BudgetListResponse{}, nil
+}
+
+func (c *FixtureBillingClient) GetBudget(_ context.Context, req GetBudgetRequest) (Budget, error) {
+	return Budget{}, fmt.Errorf("fixture budget %q is not configured", req.BudgetID)
+}
+
+func (c *FixtureBillingClient) GetBudgetUserStates(_ context.Context, _ BudgetUserStatesRequest) (BudgetUserStatesResponse, error) {
+	return BudgetUserStatesResponse{}, nil
+}

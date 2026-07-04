@@ -13,7 +13,6 @@ func TestLoadFromEnv(t *testing.T) {
 	setValidEnv(t)
 	t.Setenv("USAGE_CACHE_TTL", "5m")
 	t.Setenv("USAGE_REPORTING_WINDOW_MONTHS", "3")
-	t.Setenv("COPILOT_MONTHLY_INCLUDED_CREDITS", "2000.5")
 	t.Setenv("GITHUB_BILLING_FIXTURE_PATH", "internal/testfixtures/ai-credit-usage.json")
 
 	cfg, err := Load()
@@ -31,9 +30,6 @@ func TestLoadFromEnv(t *testing.T) {
 	}
 	if cfg.UsageReportingWindowMonths != 3 {
 		t.Fatalf("UsageReportingWindowMonths = %d", cfg.UsageReportingWindowMonths)
-	}
-	if cfg.CopilotMonthlyIncludedCredits != 2000.5 {
-		t.Fatalf("CopilotMonthlyIncludedCredits = %.2f", cfg.CopilotMonthlyIncludedCredits)
 	}
 	if cfg.GitHubBillingFixturePath != "internal/testfixtures/ai-credit-usage.json" {
 		t.Fatalf("GitHubBillingFixturePath = %q", cfg.GitHubBillingFixturePath)
@@ -167,7 +163,6 @@ func TestLoadUsesDefaults(t *testing.T) {
 		"GITHUB_IDENTITY_RESOLVER",
 		"USAGE_CACHE_TTL",
 		"USAGE_REPORTING_WINDOW_MONTHS",
-		"COPILOT_MONTHLY_INCLUDED_CREDITS",
 	} {
 		unsetEnv(t, key)
 	}
@@ -195,9 +190,6 @@ func TestLoadUsesDefaults(t *testing.T) {
 	}
 	if cfg.UsageReportingWindowMonths != 6 {
 		t.Fatalf("UsageReportingWindowMonths = %d", cfg.UsageReportingWindowMonths)
-	}
-	if cfg.CopilotMonthlyIncludedCredits != 0 {
-		t.Fatalf("CopilotMonthlyIncludedCredits = %.2f, want unset", cfg.CopilotMonthlyIncludedCredits)
 	}
 }
 
@@ -239,33 +231,6 @@ func TestLoadRejectsMalformedUsageReportingWindowMonths(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "USAGE_REPORTING_WINDOW_MONTHS") {
 		t.Fatalf("Load() error = %q, want USAGE_REPORTING_WINDOW_MONTHS context", err.Error())
-	}
-}
-
-func TestLoadRejectsNonPositiveCopilotMonthlyIncludedCredits(t *testing.T) {
-	for _, credits := range []string{"0", "-1"} {
-		t.Run(credits, func(t *testing.T) {
-			setValidEnv(t)
-			t.Setenv("COPILOT_MONTHLY_INCLUDED_CREDITS", credits)
-
-			_, err := Load()
-			if err == nil {
-				t.Fatal("Load() error = nil, want non-positive COPILOT_MONTHLY_INCLUDED_CREDITS error")
-			}
-		})
-	}
-}
-
-func TestLoadRejectsMalformedCopilotMonthlyIncludedCredits(t *testing.T) {
-	setValidEnv(t)
-	t.Setenv("COPILOT_MONTHLY_INCLUDED_CREDITS", "many")
-
-	_, err := Load()
-	if err == nil {
-		t.Fatal("Load() error = nil, want malformed COPILOT_MONTHLY_INCLUDED_CREDITS error")
-	}
-	if !strings.Contains(err.Error(), "COPILOT_MONTHLY_INCLUDED_CREDITS") {
-		t.Fatalf("Load() error = %q, want COPILOT_MONTHLY_INCLUDED_CREDITS context", err.Error())
 	}
 }
 
@@ -311,7 +276,6 @@ func setValidEnv(t *testing.T) {
 	t.Setenv("GITHUB_IDENTITY_STATIC_MAP_PATH", "internal/testfixtures/identity-map.json")
 	t.Setenv("USAGE_CACHE_TTL", "")
 	t.Setenv("USAGE_REPORTING_WINDOW_MONTHS", "")
-	t.Setenv("COPILOT_MONTHLY_INCLUDED_CREDITS", "")
 }
 
 func unsetEnv(t *testing.T, key string) {

@@ -129,14 +129,14 @@ WEB_BASE_URL=http://localhost:3000
 
 ### GitHub Enterprise Billing Access
 
-The API service calls GitHub Enterprise billing endpoints server-side. Use a
-GitHub credential with enterprise admin or billing-manager access, and never
-expose it to `src/web`.
+The API service calls GitHub Enterprise billing and budget endpoints server-side.
+Use a GitHub credential with enterprise admin or billing-manager access, and
+never expose it to `src/web`.
 
-GitHub Enterprise billing usage endpoints require an enterprise admin or
-billing-manager credential. Enterprise-scope billing endpoints are documented as
-not supporting GitHub App tokens, GitHub App installation tokens, or fine-grained
-personal access tokens.
+GitHub Enterprise billing usage and budget endpoints require an enterprise admin
+or billing-manager credential. Enterprise-scope billing endpoints are documented
+as not supporting GitHub App tokens, GitHub App installation tokens, or
+fine-grained personal access tokens.
 
 ```env
 GITHUB_API_BASE_URL=https://api.github.com
@@ -240,9 +240,9 @@ requirements.
 
 ### Cache TTL
 
-The API caches GitHub billing usage responses and successful
-`email -> GitHub login` SAML identity lookups in memory for 10 minutes by
-default. Configure the shared TTL with Go duration syntax:
+The API caches GitHub billing usage responses, resolved user budget status, and
+successful `email -> GitHub login` SAML identity lookups in memory for 10
+minutes by default. Configure the shared TTL with Go duration syntax:
 
 ```env
 USAGE_CACHE_TTL=10m
@@ -265,18 +265,10 @@ Requests outside the configured window return HTTP `400` with JSON error
 `period_out_of_range`. Malformed periods and future periods return HTTP `400`
 with JSON error `bad_request`.
 
-The monthly usage response includes monthly totals, model breakdowns, and daily
-rows populated from day-filtered GitHub billing calls. The API caches the
-normalized response for the configured short TTL.
-
-### Optional Budget Line
-
-Set an explicit monthly included-credit budget to enable the cumulative chart's
-`100% limit` line. This value is not inferred from GitHub usage fields.
-
-```env
-COPILOT_MONTHLY_INCLUDED_CREDITS=2000
-```
+The monthly usage response includes monthly totals, model breakdowns, daily rows
+populated from day-filtered GitHub billing calls, and current user budget status
+resolved from GitHub Enterprise multi-user Copilot AI credit budgets. If budget
+lookup fails, usage still returns with `budget.status` set to `unavailable`.
 
 ## Host Development
 

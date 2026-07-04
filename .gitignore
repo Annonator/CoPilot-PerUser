@@ -16,6 +16,7 @@ npm-debug.log*
 bin/
 coverage.out
 src/api/server
+src/api/.gocache/
 
 # Docker and tooling
 .docker/

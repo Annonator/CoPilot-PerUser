@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"copilot-per-user/api/internal/budget"
 	gh "copilot-per-user/api/internal/github"
 )
 
@@ -65,6 +66,23 @@ func (f *fakeBilling) requestCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return len(f.requests)
+}
+
+type fakeBudgetResolver struct {
+	mu     sync.Mutex
+	logins []string
+	result budget.UserBudget
+	err    error
+}
+
+func (f *fakeBudgetResolver) ResolveUserBudget(_ context.Context, login string) (budget.UserBudget, error) {
+	f.mu.Lock()
+	f.logins = append(f.logins, login)
+	f.mu.Unlock()
+	if f.err != nil {
+		return budget.UserBudget{}, f.err
+	}
+	return f.result, nil
 }
 
 func TestServiceReturnsNormalizedUserUsage(t *testing.T) {
@@ -151,15 +169,32 @@ func TestServiceReturnsNormalizedUserUsage(t *testing.T) {
 	}
 }
 
-func TestServiceIncludesConfiguredBudget(t *testing.T) {
+func TestServiceIncludesResolvedBudget(t *testing.T) {
 	billing := &fakeBilling{}
+	monthlyLimit := 30.0
+	consumed := 12.5
+	remaining := 17.5
+	usagePercent := 41.66666666666667
+	preventFurtherUsage := true
+	budgetResolver := &fakeBudgetResolver{
+		result: budget.UserBudget{
+			Status:              budget.StatusAvailable,
+			Source:              budget.SourceUniversal,
+			BudgetID:            "universal-ai",
+			MonthlyLimitUSD:     &monthlyLimit,
+			ConsumedUSD:         &consumed,
+			RemainingUSD:        &remaining,
+			UsagePercent:        &usagePercent,
+			PreventFurtherUsage: &preventFurtherUsage,
+		},
+	}
 	service := NewService(ServiceConfig{
-		Enterprise:                  "marbis",
-		Resolver:                    &fakeResolver{login: "Annonator"},
-		Billing:                     billing,
-		CacheTTL:                    time.Minute,
-		MonthlyIncludedCreditBudget: 2000,
-		Now:                         func() time.Time { return time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC) },
+		Enterprise: "marbis",
+		Resolver:   &fakeResolver{login: "Annonator"},
+		Billing:    billing,
+		Budget:     budgetResolver,
+		CacheTTL:   time.Minute,
+		Now:        func() time.Time { return time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC) },
 	})
 
 	result, err := service.GetMonthlyUsage(context.Background(), "andreas.pohl@nitrado.net", 2026, 6)
@@ -167,10 +202,46 @@ func TestServiceIncludesConfiguredBudget(t *testing.T) {
 		t.Fatalf("GetMonthlyUsage() error = %v", err)
 	}
 	if result.Budget == nil {
-		t.Fatal("Budget = nil, want configured budget")
+		t.Fatal("Budget = nil, want resolved budget")
 	}
-	if result.Budget.MonthlyIncludedCredits != 2000 {
-		t.Fatalf("MonthlyIncludedCredits = %.2f", result.Budget.MonthlyIncludedCredits)
+	if result.Budget.Status != budget.StatusAvailable {
+		t.Fatalf("budget status = %q", result.Budget.Status)
+	}
+	if result.Budget.BudgetID != "universal-ai" {
+		t.Fatalf("budget ID = %q", result.Budget.BudgetID)
+	}
+	if result.Budget.MonthlyLimitUSD == nil || *result.Budget.MonthlyLimitUSD != 30 {
+		t.Fatalf("MonthlyLimitUSD = %#v", result.Budget.MonthlyLimitUSD)
+	}
+	if len(budgetResolver.logins) != 1 || budgetResolver.logins[0] != "Annonator" {
+		t.Fatalf("budget resolver logins = %#v", budgetResolver.logins)
+	}
+}
+
+func TestServiceMarksBudgetUnavailableWhenBudgetLookupFails(t *testing.T) {
+	billing := &fakeBilling{}
+	budgetResolver := &fakeBudgetResolver{err: errors.New("budget API unavailable")}
+	service := NewService(ServiceConfig{
+		Enterprise: "marbis",
+		Resolver:   &fakeResolver{login: "Annonator"},
+		Billing:    billing,
+		Budget:     budgetResolver,
+		CacheTTL:   time.Minute,
+		Now:        func() time.Time { return time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC) },
+	})
+
+	result, err := service.GetMonthlyUsage(context.Background(), "andreas.pohl@nitrado.net", 2026, 6)
+	if err != nil {
+		t.Fatalf("GetMonthlyUsage() error = %v", err)
+	}
+	if result.Budget == nil {
+		t.Fatal("Budget = nil, want unavailable budget status")
+	}
+	if result.Budget.Status != budget.StatusUnavailable {
+		t.Fatalf("budget status = %q", result.Budget.Status)
+	}
+	if result.Totals != (UsageTotals{}) {
+		t.Fatalf("usage totals = %#v, want usage response preserved", result.Totals)
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"copilot-per-user/api/internal/budget"
 	gh "copilot-per-user/api/internal/github"
 	"copilot-per-user/api/internal/identity"
 )
@@ -25,24 +26,28 @@ type BillingClient interface {
 	GetAICreditUsage(context.Context, gh.AICreditUsageRequest) (gh.AICreditUsageReport, error)
 }
 
+type BudgetResolver interface {
+	ResolveUserBudget(context.Context, string) (budget.UserBudget, error)
+}
+
 type ServiceConfig struct {
-	Enterprise                  string
-	Resolver                    identity.Resolver
-	Billing                     BillingClient
-	CacheTTL                    time.Duration
-	Now                         func() time.Time
-	MonthlyIncludedCreditBudget float64
+	Enterprise string
+	Resolver   identity.Resolver
+	Billing    BillingClient
+	Budget     BudgetResolver
+	CacheTTL   time.Duration
+	Now        func() time.Time
 
 	ReportingWindowMonths int
 }
 
 type Service struct {
-	enterprise                  string
-	resolver                    identity.Resolver
-	billing                     BillingClient
-	cacheTTL                    time.Duration
-	now                         func() time.Time
-	monthlyIncludedCreditBudget float64
+	enterprise string
+	resolver   identity.Resolver
+	billing    BillingClient
+	budget     BudgetResolver
+	cacheTTL   time.Duration
+	now        func() time.Time
 
 	reportingWindowMonths int
 
@@ -75,15 +80,15 @@ func NewService(config ServiceConfig) *Service {
 		now = time.Now
 	}
 	return &Service{
-		enterprise:                  config.Enterprise,
-		resolver:                    config.Resolver,
-		billing:                     config.Billing,
-		cacheTTL:                    config.CacheTTL,
-		now:                         now,
-		monthlyIncludedCreditBudget: config.MonthlyIncludedCreditBudget,
-		reportingWindowMonths:       normalizeReportingWindowMonths(config.ReportingWindowMonths),
-		cache:                       make(map[cacheKey]cacheEntry),
-		inflight:                    make(map[cacheKey]*inflightCall),
+		enterprise:            config.Enterprise,
+		resolver:              config.Resolver,
+		billing:               config.Billing,
+		budget:                config.Budget,
+		cacheTTL:              config.CacheTTL,
+		now:                   now,
+		reportingWindowMonths: normalizeReportingWindowMonths(config.ReportingWindowMonths),
+		cache:                 make(map[cacheKey]cacheEntry),
+		inflight:              make(map[cacheKey]*inflightCall),
 	}
 }
 
@@ -167,7 +172,7 @@ func (s *Service) fetchMonthlyUsage(ctx context.Context, email, login string, ye
 			GitHubLogin: login,
 		},
 		Totals: sumModels(models),
-		Budget: s.configuredBudget(),
+		Budget: s.resolveBudget(ctx, login),
 		Models: models,
 		Daily:  daily,
 		SourceMetadata: SourceMetadata{
@@ -179,11 +184,16 @@ func (s *Service) fetchMonthlyUsage(ctx context.Context, email, login string, ye
 	return usage, nil
 }
 
-func (s *Service) configuredBudget() *UsageBudget {
-	if s.monthlyIncludedCreditBudget <= 0 {
+func (s *Service) resolveBudget(ctx context.Context, login string) *budget.UserBudget {
+	if s.budget == nil {
 		return nil
 	}
-	return &UsageBudget{MonthlyIncludedCredits: s.monthlyIncludedCreditBudget}
+	resolved, err := s.budget.ResolveUserBudget(ctx, login)
+	if err != nil {
+		unavailable := budget.UserBudget{Status: budget.StatusUnavailable}
+		return &unavailable
+	}
+	return &resolved
 }
 
 func (s *Service) fetchDailyUsage(ctx context.Context, login string, year, month int) ([]DailyUsage, error) {
@@ -324,8 +334,7 @@ func sumModels(models []ModelUsage) UsageTotals {
 
 func cloneMonthlyUsage(usage MonthlyUsage) MonthlyUsage {
 	if usage.Budget != nil {
-		budget := *usage.Budget
-		usage.Budget = &budget
+		usage.Budget = cloneBudget(usage.Budget)
 	}
 	usage.Models = cloneModels(usage.Models)
 	usage.Daily = cloneDailyUsage(usage.Daily)
@@ -333,6 +342,34 @@ func cloneMonthlyUsage(usage MonthlyUsage) MonthlyUsage {
 		usage.Daily[i].Models = cloneModels(usage.Daily[i].Models)
 	}
 	return usage
+}
+
+func cloneBudget(in *budget.UserBudget) *budget.UserBudget {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	if in.MonthlyLimitUSD != nil {
+		value := *in.MonthlyLimitUSD
+		out.MonthlyLimitUSD = &value
+	}
+	if in.ConsumedUSD != nil {
+		value := *in.ConsumedUSD
+		out.ConsumedUSD = &value
+	}
+	if in.RemainingUSD != nil {
+		value := *in.RemainingUSD
+		out.RemainingUSD = &value
+	}
+	if in.UsagePercent != nil {
+		value := *in.UsagePercent
+		out.UsagePercent = &value
+	}
+	if in.PreventFurtherUsage != nil {
+		value := *in.PreventFurtherUsage
+		out.PreventFurtherUsage = &value
+	}
+	return &out
 }
 
 func cloneModels(models []ModelUsage) []ModelUsage {

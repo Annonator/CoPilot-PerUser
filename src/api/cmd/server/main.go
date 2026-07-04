@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"copilot-per-user/api/internal/auth"
+	"copilot-per-user/api/internal/budget"
 	"copilot-per-user/api/internal/config"
 	gh "copilot-per-user/api/internal/github"
 	"copilot-per-user/api/internal/httpapi"
@@ -40,18 +41,29 @@ func main() {
 	}
 
 	var billingClient usage.BillingClient
+	var budgetClient budget.Client
 	if cfg.GitHubBillingFixturePath != "" {
-		billingClient = gh.NewFixtureBillingClient(cfg.GitHubBillingFixturePath)
+		fixtureClient := gh.NewFixtureBillingClient(cfg.GitHubBillingFixturePath)
+		billingClient = fixtureClient
+		budgetClient = fixtureClient
 	} else {
-		billingClient = gh.NewBillingClient(cfg.GitHubAPIBaseURL, cfg.GitHubAdminToken, http.DefaultClient)
+		githubClient := gh.NewBillingClient(cfg.GitHubAPIBaseURL, cfg.GitHubAdminToken, http.DefaultClient)
+		billingClient = githubClient
+		budgetClient = githubClient
 	}
+	budgetResolver := budget.NewResolver(budget.ResolverConfig{
+		Enterprise: cfg.GitHubEnterpriseSlug,
+		Client:     budgetClient,
+		CacheTTL:   cfg.UsageCacheTTL,
+		Logf:       log.Printf,
+	})
 	usageService := usage.NewService(usage.ServiceConfig{
-		Enterprise:                  cfg.GitHubEnterpriseSlug,
-		Resolver:                    resolver,
-		Billing:                     billingClient,
-		CacheTTL:                    cfg.UsageCacheTTL,
-		MonthlyIncludedCreditBudget: cfg.CopilotMonthlyIncludedCredits,
-		ReportingWindowMonths:       cfg.UsageReportingWindowMonths,
+		Enterprise:            cfg.GitHubEnterpriseSlug,
+		Resolver:              resolver,
+		Billing:               billingClient,
+		Budget:                budgetResolver,
+		CacheTTL:              cfg.UsageCacheTTL,
+		ReportingWindowMonths: cfg.UsageReportingWindowMonths,
 	})
 	server := httpapi.NewServer(httpapi.ServerConfig{
 		Auth:                       auth.Manager{Secret: []byte(cfg.AppTokenSecret)},

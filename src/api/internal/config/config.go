@@ -9,18 +9,17 @@ import (
 )
 
 type Config struct {
-	Port                          string
-	CompanyEmailDomains           []string
-	AppTokenSecret                string
-	GitHubAPIBaseURL              string
-	GitHubEnterpriseSlug          string
-	GitHubAdminToken              string
-	GitHubIdentityResolver        string
-	GitHubIdentityStaticMapPath   string
-	GitHubBillingFixturePath      string
-	UsageCacheTTL                 time.Duration
-	UsageReportingWindowMonths    int
-	CopilotMonthlyIncludedCredits float64
+	Port                        string
+	CompanyEmailDomains         []string
+	AppTokenSecret              string
+	GitHubAPIBaseURL            string
+	GitHubEnterpriseSlug        string
+	GitHubAdminToken            string
+	GitHubIdentityResolver      string
+	GitHubIdentityStaticMapPath string
+	GitHubBillingFixturePath    string
+	UsageCacheTTL               time.Duration
+	UsageReportingWindowMonths  int
 }
 
 const minimumSecretLength = 32
@@ -60,17 +59,6 @@ func Load() (Config, error) {
 		}
 		cfg.UsageReportingWindowMonths = window
 	}
-	if rawCredits := os.Getenv("COPILOT_MONTHLY_INCLUDED_CREDITS"); rawCredits != "" {
-		credits, err := strconv.ParseFloat(rawCredits, 64)
-		if err != nil {
-			return Config{}, fmt.Errorf("parse COPILOT_MONTHLY_INCLUDED_CREDITS: %w", err)
-		}
-		if credits <= 0 {
-			return Config{}, fmt.Errorf("COPILOT_MONTHLY_INCLUDED_CREDITS must be positive")
-		}
-		cfg.CopilotMonthlyIncludedCredits = credits
-	}
-
 	if len(cfg.CompanyEmailDomains) == 0 {
 		return Config{}, fmt.Errorf("COMPANY_EMAIL_DOMAINS is required")
 	}

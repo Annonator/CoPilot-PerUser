@@ -151,6 +151,29 @@ func TestServiceReturnsNormalizedUserUsage(t *testing.T) {
 	}
 }
 
+func TestServiceIncludesConfiguredBudget(t *testing.T) {
+	billing := &fakeBilling{}
+	service := NewService(ServiceConfig{
+		Enterprise:                  "marbis",
+		Resolver:                    &fakeResolver{login: "Annonator"},
+		Billing:                     billing,
+		CacheTTL:                    time.Minute,
+		MonthlyIncludedCreditBudget: 2000,
+		Now:                         func() time.Time { return time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC) },
+	})
+
+	result, err := service.GetMonthlyUsage(context.Background(), "andreas.pohl@nitrado.net", 2026, 6)
+	if err != nil {
+		t.Fatalf("GetMonthlyUsage() error = %v", err)
+	}
+	if result.Budget == nil {
+		t.Fatal("Budget = nil, want configured budget")
+	}
+	if result.Budget.MonthlyIncludedCredits != 2000 {
+		t.Fatalf("MonthlyIncludedCredits = %.2f", result.Budget.MonthlyIncludedCredits)
+	}
+}
+
 func TestServiceFetchesDailyUsageThroughElapsedCurrentMonthDays(t *testing.T) {
 	billing := &fakeBilling{}
 	now := time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC)

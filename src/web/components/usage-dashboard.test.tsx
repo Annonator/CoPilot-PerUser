@@ -85,6 +85,32 @@ const usage = {
   }
 } satisfies MonthlyUsage;
 
+const usageWithBudget = {
+  ...usage,
+  budget: {
+    monthlyIncludedCredits: 2000
+  }
+} satisfies MonthlyUsage;
+
+function usageWithDayCount(dayCount: number): MonthlyUsage {
+  return {
+    ...usage,
+    daily: Array.from({ length: dayCount }, (_, index) => {
+      const dayNumber = index + 1;
+      return {
+        day: `2026-06-${String(dayNumber).padStart(2, "0")}`,
+        totals: {
+          includedCredits: 20 + dayNumber,
+          additionalCredits: dayNumber,
+          grossAmount: dayNumber,
+          additionalUsage: dayNumber / 10
+        },
+        models: []
+      };
+    })
+  };
+}
+
 describe("UsageDashboard", () => {
   beforeEach(() => {
     const storage = new Map<string, string>();
@@ -122,8 +148,9 @@ describe("UsageDashboard", () => {
     expect(modelHeading).toBeInTheDocument();
     expect(modelHeading.compareDocumentPosition(dailyHeading)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
 
-    expect(screen.getAllByText("Jun 2026").length).toBeGreaterThan(0);
-    expect(screen.getByText("@ana")).toBeInTheDocument();
+    expect(screen.getAllByText("Jun 2026")).toHaveLength(1);
+    expect(screen.queryByText("Period")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "@ana" })).toHaveAttribute("href", "https://github.com/ana");
     expect(screen.getByText("ana@company.name")).toBeInTheDocument();
 
     const summary = screen.getByRole("complementary", { name: /usage summary/i });
@@ -179,7 +206,9 @@ describe("UsageDashboard", () => {
     render(<UsageDashboard usage={usage} />);
 
     const daily = screen.getByRole("region", { name: /daily usage/i });
-    const bars = within(daily).getAllByRole("button");
+    expect(daily.querySelector(".daily-chart")).toHaveStyle("grid-template-columns: repeat(2, minmax(0, 1fr))");
+
+    const bars = within(daily).getAllByRole("button", { name: /total credits.*additional usage/i });
     expect(bars).toHaveLength(2);
     expect(bars[0]).toHaveAccessibleName(
       "Jun 1: 900 included credits, 100 additional credits, 1,000 total credits, $1.00 additional usage"
@@ -200,6 +229,63 @@ describe("UsageDashboard", () => {
     expect(within(selectedDay).getByText("220")).toBeInTheDocument();
     expect(within(selectedDay).getByText("570")).toBeInTheDocument();
     expect(within(selectedDay).getByText("$2.20")).toBeInTheDocument();
+  });
+
+  it("does not show a cumulative budget limit without an explicit configured budget", () => {
+    render(<UsageDashboard usage={usage} />);
+
+    const daily = screen.getByRole("region", { name: /daily usage/i });
+    const cumulativeMode = within(daily).getByRole("button", { name: "Cumulative" });
+
+    fireEvent.click(cumulativeMode);
+
+    expect(within(daily).queryByText(/100%.*limit/i)).not.toBeInTheDocument();
+  });
+
+  it("keeps full-month daily charts in one visible row without scrollbar sizing", () => {
+    render(<UsageDashboard usage={usageWithDayCount(30)} />);
+
+    const daily = screen.getByRole("region", { name: /daily usage/i });
+    const chartFrame = daily.querySelector(".daily-chart-frame");
+
+    expect(chartFrame).toBeInTheDocument();
+    expect(chartFrame).not.toHaveAttribute("style");
+    expect(daily.querySelector(".daily-chart")).toHaveStyle("grid-template-columns: repeat(30, minmax(0, 1fr))");
+  });
+
+  it("toggles the daily chart to cumulative usage with a configured budget limit", () => {
+    render(<UsageDashboard usage={usageWithBudget} />);
+
+    const daily = screen.getByRole("region", { name: /daily usage/i });
+    const dailyMode = within(daily).getByRole("button", { name: "Daily" });
+    const cumulativeMode = within(daily).getByRole("button", { name: "Cumulative" });
+
+    expect(dailyMode).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(cumulativeMode);
+
+    expect(cumulativeMode).toHaveAttribute("aria-pressed", "true");
+    expect(within(daily).getByText("100% limit")).toBeInTheDocument();
+    expect(within(daily).getByRole("note", { name: "100% limit: 2,000 credits" })).toBeInTheDocument();
+
+    const chartList = within(daily).getByRole("list", { name: "Daily usage by day" });
+    expect(within(chartList).queryByRole("note")).not.toBeInTheDocument();
+
+    const bars = within(daily).getAllByRole("button", { name: /cumulative through/i });
+    expect(bars).toHaveLength(2);
+    expect(bars[1]).toHaveAccessibleName(
+      "Cumulative through Jun 2: 1,250 included credits, 320 additional credits, 1,570 total credits, $3.20 additional usage"
+    );
+
+    fireEvent.focus(bars[1]);
+
+    const selectedDay = within(daily).getByRole("region", { name: /selected cumulative usage/i });
+    expect(within(selectedDay).getByText("Cumulative through")).toBeInTheDocument();
+    expect(within(selectedDay).getByText("Jun 2")).toBeInTheDocument();
+    expect(within(selectedDay).getByText("1,250")).toBeInTheDocument();
+    expect(within(selectedDay).getByText("320")).toBeInTheDocument();
+    expect(within(selectedDay).getByText("1,570")).toBeInTheDocument();
+    expect(within(selectedDay).getByText("$3.20")).toBeInTheDocument();
   });
 
   it("switches and persists the theme preference", () => {

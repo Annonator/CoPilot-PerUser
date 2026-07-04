@@ -269,6 +269,15 @@ The monthly usage response includes monthly totals, model breakdowns, and daily
 rows populated from day-filtered GitHub billing calls. The API caches the
 normalized response for the configured short TTL.
 
+### Optional Budget Line
+
+Set an explicit monthly included-credit budget to enable the cumulative chart's
+`100% limit` line. This value is not inferred from GitHub usage fields.
+
+```env
+COPILOT_MONTHLY_INCLUDED_CREDITS=2000
+```
+
 ## Host Development
 
 Run the API:

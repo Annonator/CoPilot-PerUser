@@ -222,7 +222,9 @@ button {
 }
 
 .theme-toggle-button:focus-visible,
+.chart-mode-button:focus-visible,
 .daily-bar:focus-visible,
+.summary-login-link:focus-visible,
 .button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
@@ -258,6 +260,12 @@ button {
   color: var(--text) !important;
   font-size: 1rem !important;
   font-weight: 800;
+}
+
+.summary-login-link:hover {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 0.2rem;
 }
 
 .summary-metrics {
@@ -401,6 +409,40 @@ button {
   font-weight: 750;
 }
 
+.chart-heading-tools {
+  display: grid;
+  justify-items: end;
+  gap: 0.6rem;
+}
+
+.chart-mode-toggle {
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.2rem;
+  min-width: 12rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-soft);
+  padding: 0.2rem;
+}
+
+.chart-mode-button {
+  min-height: 1.9rem;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 760;
+  letter-spacing: 0;
+}
+
+.chart-mode-button[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
 .chart-legend span {
   display: inline-flex;
   align-items: center;
@@ -423,13 +465,24 @@ button {
   background: var(--additional);
 }
 
+.daily-chart-scroller {
+  margin: 0 1rem 1rem;
+}
+
+.daily-chart-frame {
+  min-width: 100%;
+}
+
+.daily-chart-area {
+  position: relative;
+}
+
 .daily-chart {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(1rem, 1fr));
   align-items: end;
   min-height: 12rem;
   gap: 0.5rem;
-  padding: 1.25rem 1rem 0.5rem;
+  padding: 1.25rem 0 0.5rem;
 }
 
 .daily-bar-wrap {
@@ -438,6 +491,32 @@ button {
   align-items: end;
   min-width: 0;
   height: 12rem;
+  z-index: 1;
+}
+
+.included-limit-line {
+  position: absolute;
+  right: 0;
+  left: 0;
+  z-index: 2;
+  display: flex;
+  justify-content: flex-start;
+  border-top: 1px dashed var(--danger);
+  pointer-events: none;
+}
+
+.included-limit-line span {
+  position: sticky;
+  left: 0.25rem;
+  transform: translateY(calc(-100% - 0.18rem));
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--danger);
+  font-size: 0.7rem;
+  font-weight: 820;
+  padding: 0.18rem 0.38rem;
+  white-space: nowrap;
 }
 
 .daily-bar {
@@ -523,7 +602,7 @@ button {
   justify-content: space-between;
   gap: 1rem;
   border-top: 1px solid var(--border);
-  margin: 0 1rem 1rem;
+  margin: 0;
   padding-top: 0.55rem;
   color: var(--muted);
   font-size: 0.72rem;
@@ -598,7 +677,7 @@ button {
   }
 
   .summary-metrics {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 0.65rem;
     padding-top: 0.75rem;
   }
@@ -675,10 +754,8 @@ button {
   }
 
   .daily-chart {
-    grid-template-columns: repeat(auto-fit, minmax(0.72rem, 1fr));
-    gap: 0.32rem;
+    gap: 0.12rem;
     min-height: 10rem;
-    padding-inline: 0.75rem;
   }
 
   .daily-bar-wrap {
@@ -691,6 +768,15 @@ button {
 
   .chart-legend {
     justify-content: flex-start;
+  }
+
+  .chart-heading-tools {
+    justify-items: stretch;
+  }
+
+  .chart-mode-toggle {
+    width: 100%;
+    min-width: 0;
   }
 
   .selected-day-details {

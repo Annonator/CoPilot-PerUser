@@ -26,6 +26,9 @@ export type MonthlyUsage = {
     githubLogin: string;
   };
   totals: UsageTotals;
+  budget?: {
+    monthlyIncludedCredits: number;
+  };
   daily: DailyUsage[];
   models: ModelUsage[];
   sourceMetadata: {

@@ -26,21 +26,23 @@ type BillingClient interface {
 }
 
 type ServiceConfig struct {
-	Enterprise string
-	Resolver   identity.Resolver
-	Billing    BillingClient
-	CacheTTL   time.Duration
-	Now        func() time.Time
+	Enterprise                  string
+	Resolver                    identity.Resolver
+	Billing                     BillingClient
+	CacheTTL                    time.Duration
+	Now                         func() time.Time
+	MonthlyIncludedCreditBudget float64
 
 	ReportingWindowMonths int
 }
 
 type Service struct {
-	enterprise string
-	resolver   identity.Resolver
-	billing    BillingClient
-	cacheTTL   time.Duration
-	now        func() time.Time
+	enterprise                  string
+	resolver                    identity.Resolver
+	billing                     BillingClient
+	cacheTTL                    time.Duration
+	now                         func() time.Time
+	monthlyIncludedCreditBudget float64
 
 	reportingWindowMonths int
 
@@ -73,14 +75,15 @@ func NewService(config ServiceConfig) *Service {
 		now = time.Now
 	}
 	return &Service{
-		enterprise:            config.Enterprise,
-		resolver:              config.Resolver,
-		billing:               config.Billing,
-		cacheTTL:              config.CacheTTL,
-		now:                   now,
-		reportingWindowMonths: normalizeReportingWindowMonths(config.ReportingWindowMonths),
-		cache:                 make(map[cacheKey]cacheEntry),
-		inflight:              make(map[cacheKey]*inflightCall),
+		enterprise:                  config.Enterprise,
+		resolver:                    config.Resolver,
+		billing:                     config.Billing,
+		cacheTTL:                    config.CacheTTL,
+		now:                         now,
+		monthlyIncludedCreditBudget: config.MonthlyIncludedCreditBudget,
+		reportingWindowMonths:       normalizeReportingWindowMonths(config.ReportingWindowMonths),
+		cache:                       make(map[cacheKey]cacheEntry),
+		inflight:                    make(map[cacheKey]*inflightCall),
 	}
 }
 
@@ -164,6 +167,7 @@ func (s *Service) fetchMonthlyUsage(ctx context.Context, email, login string, ye
 			GitHubLogin: login,
 		},
 		Totals: sumModels(models),
+		Budget: s.configuredBudget(),
 		Models: models,
 		Daily:  daily,
 		SourceMetadata: SourceMetadata{
@@ -173,6 +177,13 @@ func (s *Service) fetchMonthlyUsage(ctx context.Context, email, login string, ye
 		},
 	}
 	return usage, nil
+}
+
+func (s *Service) configuredBudget() *UsageBudget {
+	if s.monthlyIncludedCreditBudget <= 0 {
+		return nil
+	}
+	return &UsageBudget{MonthlyIncludedCredits: s.monthlyIncludedCreditBudget}
 }
 
 func (s *Service) fetchDailyUsage(ctx context.Context, login string, year, month int) ([]DailyUsage, error) {
@@ -312,6 +323,10 @@ func sumModels(models []ModelUsage) UsageTotals {
 }
 
 func cloneMonthlyUsage(usage MonthlyUsage) MonthlyUsage {
+	if usage.Budget != nil {
+		budget := *usage.Budget
+		usage.Budget = &budget
+	}
 	usage.Models = cloneModels(usage.Models)
 	usage.Daily = cloneDailyUsage(usage.Daily)
 	for i := range usage.Daily {

@@ -10,8 +10,14 @@ type UsageDashboardProps = {
 };
 
 type ThemePreference = "light" | "system" | "dark";
+type ChartMode = "daily" | "cumulative";
+type ChartUsagePoint = {
+  day: string;
+  totals: DailyUsage["totals"];
+};
 
 const themeOptions: ThemePreference[] = ["light", "system", "dark"];
+const chartModes: ChartMode[] = ["daily", "cumulative"];
 const THEME_STORAGE_KEY = "copilot-usage-theme";
 const themePreferenceListeners = new Set<() => void>();
 
@@ -47,12 +53,49 @@ function periodLongLabel(usage: MonthlyUsage): string {
   return periodDateFormatter.format(new Date(Date.UTC(usage.period.year, usage.period.month - 1, 1)));
 }
 
-function dailyTotal(day: DailyUsage): number {
-  return day.totals.includedCredits + day.totals.additionalCredits;
+function totalCredits(totals: DailyUsage["totals"]): number {
+  return totals.includedCredits + totals.additionalCredits;
 }
 
-function maxDailyTotal(days: DailyUsage[]): number {
-  return Math.max(1, ...days.map(dailyTotal));
+function dailyTotal(day: ChartUsagePoint): number {
+  return totalCredits(day.totals);
+}
+
+function maxDailyTotal(days: ChartUsagePoint[], includedLimit?: number): number {
+  return Math.max(1, includedLimit ?? 0, ...days.map(dailyTotal));
+}
+
+function cumulativeUsagePoints(days: DailyUsage[]): ChartUsagePoint[] {
+  let includedCredits = 0;
+  let additionalCredits = 0;
+  let grossAmount = 0;
+  let additionalUsage = 0;
+
+  return days.map((day) => {
+    includedCredits += day.totals.includedCredits;
+    additionalCredits += day.totals.additionalCredits;
+    grossAmount += day.totals.grossAmount;
+    additionalUsage += day.totals.additionalUsage;
+
+    return {
+      day: day.day,
+      totals: {
+        includedCredits,
+        additionalCredits,
+        grossAmount,
+        additionalUsage
+      }
+    };
+  });
+}
+
+function configuredIncludedLimit(usage: MonthlyUsage): number | undefined {
+  const limit = usage.budget?.monthlyIncludedCredits;
+  if (limit === undefined || limit <= 0) {
+    return undefined;
+  }
+
+  return limit;
 }
 
 function isThemePreference(value: string | null): value is ThemePreference {
@@ -104,12 +147,17 @@ function displayThemeOption(option: ThemePreference): string {
   return option[0].toUpperCase() + option.slice(1);
 }
 
-function dailyAriaLabel(day: DailyUsage): string {
-  return `${formatDay(day.day)}: ${formatNumber(day.totals.includedCredits)} included credits, ${formatNumber(
+function chartAriaLabel(day: ChartUsagePoint, mode: ChartMode): string {
+  const prefix = mode === "cumulative" ? `Cumulative through ${formatDay(day.day)}` : formatDay(day.day);
+  return `${prefix}: ${formatNumber(day.totals.includedCredits)} included credits, ${formatNumber(
     day.totals.additionalCredits
   )} additional credits, ${formatNumber(dailyTotal(day))} total credits, ${formatMoney(
     day.totals.additionalUsage
   )} additional usage`;
+}
+
+function displayChartMode(mode: ChartMode): string {
+  return mode[0].toUpperCase() + mode.slice(1);
 }
 
 function ThemePreferenceControl() {
@@ -158,11 +206,23 @@ function SummaryRail({ usage }: { usage: MonthlyUsage }) {
   return (
     <aside className="summary-rail" aria-label="Usage summary">
       <div className="summary-identity">
-        <p className="summary-login">{usage.user.githubLogin ? `@${usage.user.githubLogin}` : usage.user.email}</p>
+        <p className="summary-login">
+          {usage.user.githubLogin ? (
+            <a
+              className="summary-login-link"
+              href={`https://github.com/${usage.user.githubLogin}`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              @{usage.user.githubLogin}
+            </a>
+          ) : (
+            usage.user.email
+          )}
+        </p>
         <p>{usage.user.email}</p>
       </div>
       <dl className="summary-metrics">
-        <SummaryMetric label="Period" value={periodLongLabel(usage)} />
         <SummaryMetric label="Included credits" value={formatNumber(usage.totals.includedCredits)} />
         <SummaryMetric label="Additional credits" value={formatNumber(usage.totals.additionalCredits)} />
         <SummaryMetric label="Gross amount" value={formatMoney(usage.totals.grossAmount)} />
@@ -233,10 +293,10 @@ function ModelBreakdown({ models }: { models: ModelUsage[] }) {
   );
 }
 
-function DailyTooltip({ day }: { day: DailyUsage }) {
+function DailyTooltip({ day, mode }: { day: ChartUsagePoint; mode: ChartMode }) {
   return (
     <div className="daily-tooltip" aria-hidden="true">
-      <strong>{formatDay(day.day)}</strong>
+      <strong>{mode === "cumulative" ? `Cumulative through ${formatDay(day.day)}` : formatDay(day.day)}</strong>
       <dl>
         <div>
           <dt>Included credits</dt>
@@ -259,11 +319,14 @@ function DailyTooltip({ day }: { day: DailyUsage }) {
   );
 }
 
-function SelectedDayDetails({ day }: { day: DailyUsage }) {
+function SelectedDayDetails({ day, mode }: { day: ChartUsagePoint; mode: ChartMode }) {
   return (
-    <section className="selected-day-details" aria-label="Selected day usage">
+    <section
+      className="selected-day-details"
+      aria-label={mode === "cumulative" ? "Selected cumulative usage" : "Selected day usage"}
+    >
       <div>
-        <span>Selected day</span>
+        <span>{mode === "cumulative" ? "Cumulative through" : "Selected day"}</span>
         <strong>{formatDay(day.day)}</strong>
       </div>
       <dl>
@@ -288,66 +351,108 @@ function SelectedDayDetails({ day }: { day: DailyUsage }) {
   );
 }
 
-function DailyUsageChart({ days }: { days: DailyUsage[] }) {
-  const max = maxDailyTotal(days);
+function DailyUsageChart({ usage }: { usage: MonthlyUsage }) {
+  const days = usage.daily;
+  const [mode, setMode] = useState<ChartMode>("daily");
   const [selectedDayKey, setSelectedDayKey] = useState(days[0]?.day ?? "");
-  const selectedDay = days.find((day) => day.day === selectedDayKey) ?? days[0];
+  const includedLimit = mode === "cumulative" ? configuredIncludedLimit(usage) : undefined;
+  const chartDays = mode === "cumulative" ? cumulativeUsagePoints(days) : days;
+  const max = maxDailyTotal(chartDays, includedLimit);
+  const selectedDay = chartDays.find((day) => day.day === selectedDayKey) ?? chartDays[0];
+  const limitPosition = includedLimit ? Math.min(100, Math.max(0, (includedLimit / max) * 100)) : undefined;
 
   return (
     <section className="workspace-section daily-section" aria-labelledby="daily-usage-heading">
       <div className="workspace-section-heading">
         <div>
           <h2 id="daily-usage-heading">Daily usage</h2>
-          <p>Included and additional credits by day.</p>
+          <p>{mode === "cumulative" ? "Running credits across the period." : "Included and additional credits by day."}</p>
         </div>
-        <div className="chart-legend" aria-label="Chart legend">
-          <span>
-            <i className="legend-swatch included-swatch" aria-hidden="true" />
-            Included credits
-          </span>
-          <span>
-            <i className="legend-swatch additional-swatch" aria-hidden="true" />
-            Additional credits
-          </span>
+        <div className="chart-heading-tools">
+          <div className="chart-mode-toggle" role="group" aria-label="Chart mode">
+            {chartModes.map((option) => (
+              <button
+                type="button"
+                aria-pressed={mode === option}
+                className="chart-mode-button"
+                key={option}
+                onClick={() => setMode(option)}
+              >
+                {displayChartMode(option)}
+              </button>
+            ))}
+          </div>
+          <div className="chart-legend" aria-label="Chart legend">
+            <span>
+              <i className="legend-swatch included-swatch" aria-hidden="true" />
+              Included credits
+            </span>
+            <span>
+              <i className="legend-swatch additional-swatch" aria-hidden="true" />
+              Additional credits
+            </span>
+          </div>
         </div>
       </div>
       {days.length === 0 ? (
         <div className="empty-row">No daily usage</div>
       ) : (
         <>
-          <div className="daily-chart" role="list" aria-label="Daily usage by day">
-            {days.map((day) => {
-              const total = dailyTotal(day);
-              const totalHeight = `${Math.max(8, Math.round((total / max) * 100))}%`;
-              const includedHeight = total === 0 ? "0%" : `${Math.round((day.totals.includedCredits / total) * 100)}%`;
-              const additionalHeight =
-                total === 0 ? "0%" : `${Math.round((day.totals.additionalCredits / total) * 100)}%`;
-
-              return (
-                <div className="daily-bar-wrap" role="listitem" key={day.day}>
-                  <button
-                    type="button"
-                    className="daily-bar"
-                    aria-label={dailyAriaLabel(day)}
-                    onClick={() => setSelectedDayKey(day.day)}
-                    onFocus={() => setSelectedDayKey(day.day)}
-                    onMouseEnter={() => setSelectedDayKey(day.day)}
-                    style={{ height: totalHeight }}
+          <div className="daily-chart-scroller">
+            <div className="daily-chart-frame">
+              <div className="daily-chart-area">
+                {limitPosition === undefined ? null : (
+                  <div
+                    className="included-limit-line"
+                    style={{ bottom: `${limitPosition}%` }}
+                    role="note"
+                    aria-label={`100% limit: ${formatNumber(includedLimit ?? 0)} credits`}
                   >
-                    <span className="daily-included-segment" style={{ height: includedHeight }} />
-                    <span className="daily-additional-segment" style={{ height: additionalHeight }} />
-                  </button>
-                  <DailyTooltip day={day} />
+                    <span>100% limit</span>
+                  </div>
+                )}
+                <div
+                  className="daily-chart"
+                  role="list"
+                  aria-label="Daily usage by day"
+                  style={{ gridTemplateColumns: `repeat(${chartDays.length}, minmax(0, 1fr))` }}
+                >
+                  {chartDays.map((day) => {
+                    const total = dailyTotal(day);
+                    const totalHeight = `${Math.max(8, Math.round((total / max) * 100))}%`;
+                    const includedHeight =
+                      total === 0 ? "0%" : `${Math.round((day.totals.includedCredits / total) * 100)}%`;
+                    const additionalHeight =
+                      total === 0 ? "0%" : `${Math.round((day.totals.additionalCredits / total) * 100)}%`;
+
+                    return (
+                      <div className="daily-bar-wrap" role="listitem" key={day.day}>
+                        <button
+                          type="button"
+                          className="daily-bar"
+                          aria-label={chartAriaLabel(day, mode)}
+                          onClick={() => setSelectedDayKey(day.day)}
+                          onFocus={() => setSelectedDayKey(day.day)}
+                          onMouseEnter={() => setSelectedDayKey(day.day)}
+                          style={{ height: totalHeight }}
+                        >
+                          <span className="daily-included-segment" style={{ height: includedHeight }} />
+                          <span className="daily-additional-segment" style={{ height: additionalHeight }} />
+                        </button>
+                        <DailyTooltip day={day} mode={mode} />
+                      </div>
+                    );
+                  })}
                 </div>
-              );
-            })}
+              </div>
+              <div className="daily-axis" aria-hidden="true">
+                <span>{formatDay(days[0].day)}</span>
+                {days.length > 2 ? <span>{formatDay(days[Math.floor(days.length / 2)].day)}</span> : null}
+                <span>{formatDay(days[days.length - 1].day)}</span>
+              </div>
+            </div>
           </div>
-          <div className="daily-axis" aria-hidden="true">
-            <span>{formatDay(days[0].day)}</span>
-            {days.length > 2 ? <span>{formatDay(days[Math.floor(days.length / 2)].day)}</span> : null}
-            <span>{formatDay(days[days.length - 1].day)}</span>
-          </div>
-          {selectedDay ? <SelectedDayDetails day={selectedDay} /> : null}
+          {selectedDay ? <SelectedDayDetails day={selectedDay} mode={mode} /> : null}
         </>
       )}
     </section>
@@ -387,7 +492,7 @@ export function UsageDashboard({ usage, error }: UsageDashboardProps) {
         <SummaryRail usage={usage} />
         <div className="workspace">
           <ModelBreakdown models={usage.models} />
-          <DailyUsageChart days={usage.daily} />
+          <DailyUsageChart usage={usage} />
         </div>
       </div>
     </main>

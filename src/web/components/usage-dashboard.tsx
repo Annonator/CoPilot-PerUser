@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useSyncExternalStore } from "react";
 
-import type { DailyUsage, ModelUsage, MonthlyUsage } from "@/lib/usage-types";
+import type { DailyUsage, ModelUsage, MonthlyUsage, UserBudget } from "@/lib/usage-types";
 
 type UsageDashboardProps = {
   usage?: MonthlyUsage;
@@ -25,6 +25,9 @@ const numberFormatter = new Intl.NumberFormat("en-US");
 const moneyFormatter = new Intl.NumberFormat("en-US", {
   style: "currency",
   currency: "USD"
+});
+const percentFormatter = new Intl.NumberFormat("en-US", {
+  maximumFractionDigits: 1
 });
 const compactDateFormatter = new Intl.DateTimeFormat("en-US", {
   month: "short",
@@ -61,8 +64,8 @@ function dailyTotal(day: ChartUsagePoint): number {
   return totalCredits(day.totals);
 }
 
-function maxDailyTotal(days: ChartUsagePoint[], includedLimit?: number): number {
-  return Math.max(1, includedLimit ?? 0, ...days.map(dailyTotal));
+function maxDailyTotal(days: ChartUsagePoint[], budgetLimitCredits?: number): number {
+  return Math.max(1, budgetLimitCredits ?? 0, ...days.map(dailyTotal));
 }
 
 function cumulativeUsagePoints(days: DailyUsage[]): ChartUsagePoint[] {
@@ -89,13 +92,27 @@ function cumulativeUsagePoints(days: DailyUsage[]): ChartUsagePoint[] {
   });
 }
 
-function configuredIncludedLimit(usage: MonthlyUsage): number | undefined {
-  const limit = usage.budget?.monthlyIncludedCredits;
-  if (limit === undefined || limit <= 0) {
+function estimatedPricePerCredit(usage: MonthlyUsage): number | undefined {
+  const total = totalCredits(usage.totals);
+  if (total > 0 && usage.totals.grossAmount > 0) {
+    return usage.totals.grossAmount / total;
+  }
+
+  const pricedModel = usage.models.find((model) => model.pricePerCredit > 0);
+  return pricedModel?.pricePerCredit;
+}
+
+function budgetLimitCredits(usage: MonthlyUsage): number | undefined {
+  if (usage.budget?.status !== "available" || usage.budget.monthlyLimitUsd === undefined || usage.budget.monthlyLimitUsd <= 0) {
     return undefined;
   }
 
-  return limit;
+  const pricePerCredit = estimatedPricePerCredit(usage);
+  if (pricePerCredit === undefined || pricePerCredit <= 0) {
+    return undefined;
+  }
+
+  return usage.budget.monthlyLimitUsd / pricePerCredit;
 }
 
 function isThemePreference(value: string | null): value is ThemePreference {
@@ -202,6 +219,77 @@ function SummaryMetric({ label, value }: { label: string; value: string }) {
   );
 }
 
+function formatPercent(value: number): string {
+  return `${percentFormatter.format(value)}%`;
+}
+
+function displayBudgetSource(source?: UserBudget["source"]): string | undefined {
+  if (source === "universal") {
+    return "Universal";
+  }
+  if (source === "override") {
+    return "Override";
+  }
+  return undefined;
+}
+
+function BudgetValue({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt>{label}</dt>
+      <dd>{value}</dd>
+    </div>
+  );
+}
+
+function BudgetSummary({ budget }: { budget?: UserBudget }) {
+  if (!budget) {
+    return null;
+  }
+
+  if (budget.status === "not_configured") {
+    return (
+      <section className="budget-summary budget-summary-state" role="group" aria-labelledby="monthly-budget-heading">
+        <h2 id="monthly-budget-heading">Monthly budget</h2>
+        <p>No user budget configured</p>
+      </section>
+    );
+  }
+
+  if (budget.status === "unavailable") {
+    return (
+      <section className="budget-summary budget-summary-state" role="group" aria-labelledby="monthly-budget-heading">
+        <h2 id="monthly-budget-heading">Monthly budget</h2>
+        <p>Budget unavailable</p>
+      </section>
+    );
+  }
+
+  const source = displayBudgetSource(budget.source);
+
+  return (
+    <section className="budget-summary" role="group" aria-labelledby="monthly-budget-heading">
+      <div className="budget-summary-heading">
+        <h2 id="monthly-budget-heading">Monthly budget</h2>
+        {source ? <span>{source}</span> : null}
+      </div>
+      <dl>
+        <BudgetValue
+          label="Limit"
+          value={budget.monthlyLimitUsd === undefined ? "Not set" : formatMoney(budget.monthlyLimitUsd)}
+        />
+        <BudgetValue label="Used" value={budget.consumedUsd === undefined ? "Not set" : formatMoney(budget.consumedUsd)} />
+        <BudgetValue
+          label="Remaining"
+          value={budget.remainingUsd === undefined ? "Not set" : formatMoney(budget.remainingUsd)}
+        />
+      </dl>
+      {budget.usagePercent === undefined ? null : <p>{formatPercent(budget.usagePercent)} used</p>}
+      {budget.preventFurtherUsage ? <p className="budget-enforcement">Usage stops at limit</p> : null}
+    </section>
+  );
+}
+
 function SummaryRail({ usage }: { usage: MonthlyUsage }) {
   return (
     <aside className="summary-rail" aria-label="Usage summary">
@@ -228,6 +316,7 @@ function SummaryRail({ usage }: { usage: MonthlyUsage }) {
         <SummaryMetric label="Gross amount" value={formatMoney(usage.totals.grossAmount)} />
         <SummaryMetric label="Additional usage" value={formatMoney(usage.totals.additionalUsage)} />
       </dl>
+      <BudgetSummary budget={usage.budget} />
     </aside>
   );
 }
@@ -355,11 +444,12 @@ function DailyUsageChart({ usage }: { usage: MonthlyUsage }) {
   const days = usage.daily;
   const [mode, setMode] = useState<ChartMode>("daily");
   const [selectedDayKey, setSelectedDayKey] = useState(days[0]?.day ?? "");
-  const includedLimit = mode === "cumulative" ? configuredIncludedLimit(usage) : undefined;
+  const budgetCredits = mode === "cumulative" ? budgetLimitCredits(usage) : undefined;
   const chartDays = mode === "cumulative" ? cumulativeUsagePoints(days) : days;
-  const max = maxDailyTotal(chartDays, includedLimit);
+  const max = maxDailyTotal(chartDays, budgetCredits);
   const selectedDay = chartDays.find((day) => day.day === selectedDayKey) ?? chartDays[0];
-  const limitPosition = includedLimit ? Math.min(100, Math.max(0, (includedLimit / max) * 100)) : undefined;
+  const budgetLinePosition =
+    budgetCredits === undefined ? undefined : Math.min(100, Math.max(0, (budgetCredits / max) * 100));
 
   return (
     <section className="workspace-section daily-section" aria-labelledby="daily-usage-heading">
@@ -401,14 +491,16 @@ function DailyUsageChart({ usage }: { usage: MonthlyUsage }) {
           <div className="daily-chart-scroller">
             <div className="daily-chart-frame">
               <div className="daily-chart-area">
-                {limitPosition === undefined ? null : (
+                {budgetLinePosition === undefined ? null : (
                   <div
-                    className="included-limit-line"
-                    style={{ bottom: `${limitPosition}%` }}
+                    className="budget-limit-line"
+                    style={{ bottom: `${budgetLinePosition}%` }}
                     role="note"
-                    aria-label={`100% limit: ${formatNumber(includedLimit ?? 0)} credits`}
+                    aria-label={`Budget line: ${formatMoney(usage.budget?.monthlyLimitUsd ?? 0)} monthly budget, ${formatNumber(
+                      budgetCredits ?? 0
+                    )} equivalent credits`}
                   >
-                    <span>100% limit</span>
+                    <span>Budget</span>
                   </div>
                 )}
                 <div

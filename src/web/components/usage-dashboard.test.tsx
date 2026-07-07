@@ -3,7 +3,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { UsageDashboard } from "./usage-dashboard";
-import type { MonthlyUsage } from "@/lib/usage-types";
+import type { MonthlyUsage, UserBudget } from "@/lib/usage-types";
 
 const usage = {
   period: {
@@ -85,12 +85,12 @@ const usage = {
   }
 } satisfies MonthlyUsage;
 
-const usageWithBudget = {
-  ...usage,
-  budget: {
-    monthlyIncludedCredits: 2000
-  }
-} satisfies MonthlyUsage;
+function usageWithBudget(budget: UserBudget): MonthlyUsage {
+  return {
+    ...usage,
+    budget
+  };
+}
 
 function usageWithDayCount(dayCount: number): MonthlyUsage {
   return {
@@ -253,20 +253,99 @@ describe("UsageDashboard", () => {
     expect(daily.querySelector(".daily-chart")).toHaveStyle("grid-template-columns: repeat(30, minmax(0, 1fr))");
   });
 
-  it("toggles the daily chart to cumulative usage with a configured budget limit", () => {
-    render(<UsageDashboard usage={usageWithBudget} />);
+  it("renders an available universal budget separately from credit totals", () => {
+    render(
+      <UsageDashboard
+        usage={usageWithBudget({
+          status: "available",
+          source: "universal",
+          monthlyLimitUsd: 30,
+          consumedUsd: 12.5,
+          remainingUsd: 17.5,
+          usagePercent: 41.66666666666667,
+          preventFurtherUsage: true
+        })}
+      />
+    );
+
+    const summary = screen.getByRole("complementary", { name: /usage summary/i });
+    const budget = within(summary).getByRole("group", { name: "Monthly budget" });
+
+    expect(within(budget).getByText("Monthly budget")).toBeInTheDocument();
+    expect(within(budget).getByText("$30.00")).toBeInTheDocument();
+    expect(within(budget).getByText("Used")).toBeInTheDocument();
+    expect(within(budget).getByText("$12.50")).toBeInTheDocument();
+    expect(within(budget).getByText("Remaining")).toBeInTheDocument();
+    expect(within(budget).getByText("$17.50")).toBeInTheDocument();
+    expect(within(budget).getByText("41.7% used")).toBeInTheDocument();
+    expect(within(budget).getByText("Universal")).toBeInTheDocument();
+    expect(within(budget).getByText("Usage stops at limit")).toBeInTheDocument();
+    expect(within(budget).queryByText(/included credits/i)).not.toBeInTheDocument();
+  });
+
+  it("renders override, not-configured, and unavailable budget states", () => {
+    const { rerender } = render(
+      <UsageDashboard
+        usage={usageWithBudget({
+          status: "available",
+          source: "override",
+          monthlyLimitUsd: 50,
+          consumedUsd: 12.5,
+          remainingUsd: 37.5,
+          usagePercent: 25,
+          preventFurtherUsage: false
+        })}
+      />
+    );
+
+    let budget = within(screen.getByRole("complementary", { name: /usage summary/i })).getByRole("group", {
+      name: "Monthly budget"
+    });
+    expect(within(budget).getByText("Override")).toBeInTheDocument();
+    expect(within(budget).getByText("$50.00")).toBeInTheDocument();
+    expect(within(budget).getByText("25% used")).toBeInTheDocument();
+    expect(within(budget).queryByText("Usage stops at limit")).not.toBeInTheDocument();
+
+    rerender(<UsageDashboard usage={usageWithBudget({ status: "not_configured" })} />);
+    budget = within(screen.getByRole("complementary", { name: /usage summary/i })).getByRole("group", {
+      name: "Monthly budget"
+    });
+    expect(within(budget).getByText("No user budget configured")).toBeInTheDocument();
+
+    rerender(<UsageDashboard usage={usageWithBudget({ status: "unavailable" })} />);
+    budget = within(screen.getByRole("complementary", { name: /usage summary/i })).getByRole("group", {
+      name: "Monthly budget"
+    });
+    expect(within(budget).getByText("Budget unavailable")).toBeInTheDocument();
+  });
+
+  it("toggles the daily chart to cumulative usage with a converted budget line", () => {
+    render(
+      <UsageDashboard
+        usage={usageWithBudget({
+          status: "available",
+          source: "universal",
+          monthlyLimitUsd: 30,
+          consumedUsd: 12.5,
+          remainingUsd: 17.5,
+          usagePercent: 41.66666666666667
+        })}
+      />
+    );
 
     const daily = screen.getByRole("region", { name: /daily usage/i });
     const dailyMode = within(daily).getByRole("button", { name: "Daily" });
     const cumulativeMode = within(daily).getByRole("button", { name: "Cumulative" });
 
     expect(dailyMode).toHaveAttribute("aria-pressed", "true");
+    expect(within(daily).queryByText("Budget")).not.toBeInTheDocument();
 
     fireEvent.click(cumulativeMode);
 
     expect(cumulativeMode).toHaveAttribute("aria-pressed", "true");
-    expect(within(daily).getByText("100% limit")).toBeInTheDocument();
-    expect(within(daily).getByRole("note", { name: "100% limit: 2,000 credits" })).toBeInTheDocument();
+    expect(within(daily).getByText("Budget")).toBeInTheDocument();
+    expect(within(daily).getByRole("note", { name: "Budget line: $30.00 monthly budget, 3,000 equivalent credits" })).toBeInTheDocument();
+    expect(within(daily).queryByText("100% limit")).not.toBeInTheDocument();
 
     const chartList = within(daily).getByRole("list", { name: "Daily usage by day" });
     expect(within(chartList).queryByRole("note")).not.toBeInTheDocument();

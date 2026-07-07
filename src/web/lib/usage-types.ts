@@ -16,6 +16,18 @@ export type DailyUsage = {
   models: ModelUsage[];
 };
 
+export type UserBudget = {
+  status: "available" | "not_configured" | "unavailable";
+  source?: "universal" | "override";
+  budgetId?: string;
+  parentBudgetId?: string;
+  monthlyLimitUsd?: number;
+  consumedUsd?: number;
+  remainingUsd?: number;
+  usagePercent?: number;
+  preventFurtherUsage?: boolean;
+};
+
 export type MonthlyUsage = {
   period: {
     year: number;
@@ -26,9 +38,7 @@ export type MonthlyUsage = {
     githubLogin: string;
   };
   totals: UsageTotals;
-  budget?: {
-    monthlyIncludedCredits: number;
-  };
+  budget?: UserBudget;
   daily: DailyUsage[];
   models: ModelUsage[];
   sourceMetadata: {

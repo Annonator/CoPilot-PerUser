@@ -112,12 +112,22 @@ func (r *Resolver) ResolveUserBudget(ctx context.Context, login string) (UserBud
 }
 
 func (r *Resolver) resolveUserBudget(ctx context.Context, login string) (UserBudget, error) {
-	budgets, err := r.listUniversalBudgets(ctx)
+	budgets, err := r.listBudgets(ctx, budgetScopeMultiUserCustomer, login)
 	if err != nil {
 		return UserBudget{}, err
 	}
 
 	universal, matchCount, ok := chooseUniversalAICreditBudget(budgets)
+	if !ok {
+		budgets, err = r.listBudgets(ctx, "", login)
+		if err != nil {
+			return UserBudget{}, err
+		}
+		universal, matchCount, ok = chooseUniversalAICreditBudget(budgets)
+		if ok && r.logf != nil {
+			r.logf("unscoped budget list recovered universal AI credit budget for enterprise %s", r.enterprise)
+		}
+	}
 	if !ok {
 		return UserBudget{Status: StatusNotConfigured}, nil
 	}
@@ -127,7 +137,14 @@ func (r *Resolver) resolveUserBudget(ctx context.Context, login string) (UserBud
 
 	userState, err := r.getUserState(ctx, universal.ID, login)
 	if err != nil {
-		return UserBudget{}, err
+		listUserState, ok := userStateFromBudgetList(universal, login)
+		if !ok {
+			return UserBudget{}, err
+		}
+		if r.logf != nil {
+			r.logf("using budget list user amounts for enterprise %s after user-states lookup failed: %v", r.enterprise, err)
+		}
+		userState = listUserState
 	}
 
 	effective := universal
@@ -149,12 +166,13 @@ func (r *Resolver) resolveUserBudget(ctx context.Context, login string) (UserBud
 	return normalizeUserBudget(effective, userState, source, parentBudgetID), nil
 }
 
-func (r *Resolver) listUniversalBudgets(ctx context.Context) ([]gh.Budget, error) {
+func (r *Resolver) listBudgets(ctx context.Context, scope string, login string) ([]gh.Budget, error) {
 	var budgets []gh.Budget
 	for page := 1; ; page++ {
 		response, err := r.client.ListBudgets(ctx, gh.BudgetListRequest{
 			Enterprise: r.enterprise,
-			Scope:      budgetScopeMultiUserCustomer,
+			Scope:      scope,
+			User:       login,
 			Page:       page,
 			PerPage:    100,
 		})
@@ -187,6 +205,26 @@ func (r *Resolver) getUserState(ctx context.Context, budgetID string, login stri
 		return response.UserStates[0], nil
 	}
 	return gh.BudgetUserState{User: login}, nil
+}
+
+func userStateFromBudgetList(budget gh.Budget, login string) (gh.BudgetUserState, bool) {
+	if budget.ConsumedAmount == nil && budget.TargetAmount == nil && strings.TrimSpace(budget.OverrideBudgetID) == "" {
+		return gh.BudgetUserState{}, false
+	}
+
+	state := gh.BudgetUserState{
+		User:             login,
+		OverrideBudgetID: strings.TrimSpace(budget.OverrideBudgetID),
+	}
+	if budget.ConsumedAmount != nil {
+		state.ConsumedAmount = *budget.ConsumedAmount
+	}
+	if budget.TargetAmount != nil {
+		state.TargetAmount = *budget.TargetAmount
+	} else {
+		state.TargetAmount = budget.BudgetAmount
+	}
+	return state, true
 }
 
 func chooseUniversalAICreditBudget(budgets []gh.Budget) (gh.Budget, int, bool) {

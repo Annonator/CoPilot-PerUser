@@ -35,6 +35,7 @@ func TestBillingClientListsEnterpriseBudgets(t *testing.T) {
 					"budget_product_skus": ["ai_credits"],
 					"budget_scope": "multi_user_customer",
 					"budget_amount": 30,
+					"consumed_amount": 12.5,
 					"prevent_further_usage": true
 				}
 			],
@@ -72,6 +73,9 @@ func TestBillingClientListsEnterpriseBudgets(t *testing.T) {
 	}
 	if response.Budgets[0].BudgetAmount != 30 {
 		t.Fatalf("budget amount = %.2f", response.Budgets[0].BudgetAmount)
+	}
+	if response.Budgets[0].ConsumedAmount == nil || *response.Budgets[0].ConsumedAmount != 12.5 {
+		t.Fatalf("consumed amount = %#v", response.Budgets[0].ConsumedAmount)
 	}
 	if !response.Budgets[0].PreventFurtherUsage {
 		t.Fatal("PreventFurtherUsage = false, want true")

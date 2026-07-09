@@ -13,14 +13,16 @@ import (
 )
 
 type fakeBudgetClient struct {
-	mu                sync.Mutex
-	listRequests      []gh.BudgetListRequest
-	getRequests       []gh.GetBudgetRequest
-	userStateRequests []gh.BudgetUserStatesRequest
-	listResponse      gh.BudgetListResponse
-	userStateResponse gh.BudgetUserStatesResponse
-	budgetsByID       map[string]gh.Budget
-	err               error
+	mu                   sync.Mutex
+	listRequests         []gh.BudgetListRequest
+	getRequests          []gh.GetBudgetRequest
+	userStateRequests    []gh.BudgetUserStatesRequest
+	listResponse         gh.BudgetListResponse
+	listResponsesByScope map[string]gh.BudgetListResponse
+	userStateResponse    gh.BudgetUserStatesResponse
+	userStateErr         error
+	budgetsByID          map[string]gh.Budget
+	err                  error
 }
 
 func (f *fakeBudgetClient) ListBudgets(_ context.Context, req gh.BudgetListRequest) (gh.BudgetListResponse, error) {
@@ -29,6 +31,11 @@ func (f *fakeBudgetClient) ListBudgets(_ context.Context, req gh.BudgetListReque
 	f.mu.Unlock()
 	if f.err != nil {
 		return gh.BudgetListResponse{}, f.err
+	}
+	if f.listResponsesByScope != nil {
+		if response, ok := f.listResponsesByScope[req.Scope]; ok {
+			return response, nil
+		}
 	}
 	return f.listResponse, nil
 }
@@ -53,6 +60,9 @@ func (f *fakeBudgetClient) GetBudgetUserStates(_ context.Context, req gh.BudgetU
 	f.mu.Unlock()
 	if f.err != nil {
 		return gh.BudgetUserStatesResponse{}, f.err
+	}
+	if f.userStateErr != nil {
+		return gh.BudgetUserStatesResponse{}, f.userStateErr
 	}
 	return f.userStateResponse, nil
 }
@@ -108,6 +118,9 @@ func TestResolverResolvesUniversalBudgetWithoutOverride(t *testing.T) {
 	}
 	if client.listRequests[0].Scope != "multi_user_customer" {
 		t.Fatalf("budget scope = %q", client.listRequests[0].Scope)
+	}
+	if client.listRequests[0].User != "Annonator" {
+		t.Fatalf("budget list user = %q", client.listRequests[0].User)
 	}
 	if len(client.userStateRequests) != 1 {
 		t.Fatalf("GetBudgetUserStates request count = %d", len(client.userStateRequests))
@@ -266,6 +279,105 @@ func TestResolverReturnsNotConfiguredWhenNoUniversalBudgetExists(t *testing.T) {
 	if len(client.userStateRequests) != 0 {
 		t.Fatalf("user state request count = %d", len(client.userStateRequests))
 	}
+}
+
+func TestResolverFallsBackToUnscopedBudgetListWhenScopedResponseHasNoUniversalBudget(t *testing.T) {
+	client := &fakeBudgetClient{
+		listResponsesByScope: map[string]gh.BudgetListResponse{
+			"multi_user_customer": {},
+			"": {Budgets: []gh.Budget{
+				{
+					ID:                  "universal-ai",
+					BudgetType:          "BundlePricing",
+					BudgetProductSKU:    "ai_credits",
+					BudgetScope:         "multi_user_customer",
+					BudgetAmount:        30,
+					PreventFurtherUsage: true,
+				},
+			}},
+		},
+		userStateResponse: gh.BudgetUserStatesResponse{UserStates: []gh.BudgetUserState{
+			{User: "Annonator", ConsumedAmount: 12.5, TargetAmount: 30},
+		}},
+	}
+	resolver := NewResolver(ResolverConfig{
+		Enterprise: "marbis",
+		Client:     client,
+		Now:        fixedNow,
+	})
+
+	result, err := resolver.ResolveUserBudget(context.Background(), "Annonator")
+	if err != nil {
+		t.Fatalf("ResolveUserBudget() error = %v", err)
+	}
+	if result.Status != StatusAvailable {
+		t.Fatalf("Status = %q", result.Status)
+	}
+	if result.BudgetID != "universal-ai" {
+		t.Fatalf("BudgetID = %q", result.BudgetID)
+	}
+	assertFloatPointer(t, "MonthlyLimitUSD", result.MonthlyLimitUSD, 30)
+
+	if len(client.listRequests) != 2 {
+		t.Fatalf("ListBudgets request count = %d, want scoped request plus unscoped fallback", len(client.listRequests))
+	}
+	if client.listRequests[0].Scope != "multi_user_customer" {
+		t.Fatalf("first budget scope = %q", client.listRequests[0].Scope)
+	}
+	if client.listRequests[0].User != "Annonator" {
+		t.Fatalf("first budget user = %q", client.listRequests[0].User)
+	}
+	if client.listRequests[1].Scope != "" {
+		t.Fatalf("fallback budget scope = %q, want unscoped", client.listRequests[1].Scope)
+	}
+	if client.listRequests[1].User != "Annonator" {
+		t.Fatalf("fallback budget user = %q", client.listRequests[1].User)
+	}
+	if len(client.userStateRequests) != 1 {
+		t.Fatalf("GetBudgetUserStates request count = %d", len(client.userStateRequests))
+	}
+}
+
+func TestResolverUsesBudgetListUserAmountsWhenUserStatesEndpointIsUnavailable(t *testing.T) {
+	consumed := 0.25287777
+	client := &fakeBudgetClient{
+		listResponse: gh.BudgetListResponse{Budgets: []gh.Budget{
+			{
+				ID:                  "universal-ai",
+				BudgetType:          "BundlePricing",
+				BudgetProductSKU:    "ai_credits",
+				BudgetScope:         "multi_user_customer",
+				BudgetAmount:        150,
+				ConsumedAmount:      &consumed,
+				PreventFurtherUsage: true,
+			},
+		}},
+		userStateErr: errors.New("GitHub budget user states status 404"),
+	}
+	resolver := NewResolver(ResolverConfig{
+		Enterprise: "marbis",
+		Client:     client,
+		Now:        fixedNow,
+	})
+
+	result, err := resolver.ResolveUserBudget(context.Background(), "annonator")
+	if err != nil {
+		t.Fatalf("ResolveUserBudget() error = %v", err)
+	}
+	if result.Status != StatusAvailable {
+		t.Fatalf("Status = %q", result.Status)
+	}
+	if result.Source != SourceUniversal {
+		t.Fatalf("Source = %q", result.Source)
+	}
+	if result.BudgetID != "universal-ai" {
+		t.Fatalf("BudgetID = %q", result.BudgetID)
+	}
+	assertFloatPointer(t, "MonthlyLimitUSD", result.MonthlyLimitUSD, 150)
+	assertFloatPointer(t, "ConsumedUSD", result.ConsumedUSD, 0.25287777)
+	assertFloatPointer(t, "RemainingUSD", result.RemainingUSD, 149.74712223)
+	assertFloatPointer(t, "UsagePercent", result.UsagePercent, 0.16858518)
+	assertBoolPointer(t, "PreventFurtherUsage", result.PreventFurtherUsage, true)
 }
 
 func TestResolverReturnsErrorsForBudgetAPIAndInvalidConfig(t *testing.T) {

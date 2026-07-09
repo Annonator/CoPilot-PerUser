@@ -47,6 +47,9 @@ type Budget struct {
 	BudgetScope         string   `json:"budget_scope"`
 	BudgetEntityName    string   `json:"budget_entity_name"`
 	BudgetAmount        float64  `json:"budget_amount"`
+	ConsumedAmount      *float64 `json:"consumed_amount,omitempty"`
+	TargetAmount        *float64 `json:"target_amount,omitempty"`
+	OverrideBudgetID    string   `json:"override_budget_id,omitempty"`
 	PreventFurtherUsage bool     `json:"prevent_further_usage"`
 }
 

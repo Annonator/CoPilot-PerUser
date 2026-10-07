@@ -12,6 +12,25 @@ src/api   Go backend
 docs      specs and implementation plans
 ```
 
+Host development requires Node.js 22.13 or newer (Docker uses Node.js 26) and
+Go 1.26.8 or newer.
+
+### Temporary Braces Security Patch
+
+The web lockfile pins `braces` to immutable upstream commit
+`97308a01d091b211cf015314a2d0696da28a5392` from
+[upstream PR #78](https://github.com/micromatch/braces/pull/78). No published
+release currently fixes [CVE-2026-93687](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm).
+The patch bounds parser nesting and recursive AST traversal, including direct
+AST callers. `dependency-security.test.ts` checks malicious inputs and ordinary
+Next.js lint root-directory resolution through the installed dependency chain.
+
+The patched archive retains upstream version `3.0.3`, so full `npm audit` still
+reports this advisory for five packages in the development-only lint chain.
+The production dependency audit is clean. Keep the override until a published
+patched release is available, then replace it and rerun the security regression
+tests and application checks. Do not relabel the package to hide audit warnings.
+
 ## Local Configuration
 
 Create local environment files from `.env.example`.

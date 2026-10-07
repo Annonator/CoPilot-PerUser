@@ -13,11 +13,14 @@
   },
   "dependencies": {
     "jose": "^6.2.3",
-    "next": "^16.3.0",
+    "next": "^16.3.8",
     "next-auth": "5.0.0-beta.32",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "server-only": "^0.0.1"
+  },
+  "overrides": {
+    "braces": "https://codeload.github.com/micromatch/braces/tar.gz/97308a01d091b211cf015314a2d0696da28a5392"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.6.3",
@@ -27,9 +30,9 @@
     "@types/react-dom": "^19.0.2",
     "@vitejs/plugin-react": "^6.0.3",
     "eslint": "^9.39.4",
-    "eslint-config-next": "^16.2.9",
+    "eslint-config-next": "^16.3.8",
     "jsdom": "^29.1.1",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.11"
   }
 }

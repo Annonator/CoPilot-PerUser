@@ -12,8 +12,7 @@ src/api   Go backend
 docs      specs and implementation plans
 ```
 
-Host development requires Node.js 22.13 or newer (Docker uses Node.js 26) and
-Go 1.26.8 or newer.
+Use Node.js 26 for host development, matching Docker, and Go 1.26.8 or newer.
 
 ### Temporary Braces Security Patch
 
@@ -317,6 +316,10 @@ AUTH_SECRET="$(openssl rand -base64 32)" APP_TOKEN_SECRET="$(openssl rand -base6
 ```
 
 ## Docker Development
+
+Runtime images upgrade Alpine packages during the build. The web runtime runs
+the standalone server directly with Node.js; npm and npx are available in build
+stages and removed from the final image.
 
 ```bash
 docker compose up --build

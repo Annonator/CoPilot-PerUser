@@ -5,6 +5,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /out/api ./cmd/server
 
 FROM alpine:3.24
+RUN apk upgrade --no-cache
 WORKDIR /app
 COPY --from=build /out/api /app/api
 EXPOSE 8080

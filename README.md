@@ -12,6 +12,24 @@ src/api   Go backend
 docs      specs and implementation plans
 ```
 
+Use Node.js 26 for host development, matching Docker, and Go 1.26.8 or newer.
+
+### Temporary Braces Security Patch
+
+The web lockfile pins `braces` to immutable upstream commit
+`97308a01d091b211cf015314a2d0696da28a5392` from
+[upstream PR #78](https://github.com/micromatch/braces/pull/78). No published
+release currently fixes [CVE-2026-93687](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm).
+The patch bounds parser nesting and recursive AST traversal, including direct
+AST callers. `dependency-security.test.ts` checks malicious inputs and ordinary
+Next.js lint root-directory resolution through the installed dependency chain.
+
+The patched archive retains upstream version `3.0.3`, so full `npm audit` still
+reports this advisory for five packages in the development-only lint chain.
+The production dependency audit is clean. Keep the override until a published
+patched release is available, then replace it and rerun the security regression
+tests and application checks. Do not relabel the package to hide audit warnings.
+
 ## Local Configuration
 
 Create local environment files from `.env.example`.
@@ -298,6 +316,10 @@ AUTH_SECRET="$(openssl rand -base64 32)" APP_TOKEN_SECRET="$(openssl rand -base6
 ```
 
 ## Docker Development
+
+Runtime images upgrade Alpine packages during the build. The web runtime runs
+the standalone server directly with Node.js; npm and npx are available in build
+stages and removed from the final image.
 
 ```bash
 docker compose up --build

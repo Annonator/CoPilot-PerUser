@@ -12,7 +12,18 @@ src/api   Go backend
 docs      specs and implementation plans
 ```
 
-Use Node.js 26 for host development, matching Docker, and Go 1.26.8 or newer.
+Use Node.js 26.12.1 for host development, matching Docker and `.nvmrc`, and
+Go 1.27.3 or newer in the 1.27 release line. Node.js 22.23.4+ and 24.22.1+ are also
+supported within their respective release lines. Dependency installation and
+the web development, build, and start commands reject older Node.js versions.
+
+These minimums include the October 2026 security updates for
+[Node2Shell (CVE-2026-111497)](https://nodejs.org/en/blog/vulnerability/october-2026-security-releases)
+and [Go certificate validation (CVE-2026-111943)](https://groups.google.com/g/golang-announce/c/66pojueaQek).
+Next.js 16.4.1 fixes the [Server Actions denial of service](https://github.com/vercel/next.js/security/advisories/GHSA-p3m5-59mp-jv5r)
+that affects this app's sign-in and sign-out forms.
+Rebuild and redeploy both containers to apply these fixes to an existing deployment;
+updating the source or pulling an image does not update a running container.
 
 ### Temporary Braces Security Patch
 
@@ -24,9 +35,9 @@ The patch bounds parser nesting and recursive AST traversal, including direct
 AST callers. `dependency-security.test.ts` checks malicious inputs and ordinary
 Next.js lint root-directory resolution through the installed dependency chain.
 
-The patched archive retains upstream version `3.0.3`, so full `npm audit` still
-reports this advisory for five packages in the development-only lint chain.
-The production dependency audit is clean. Keep the override until a published
+The patched archive retains upstream version `3.0.3`, so scanners that check only
+package versions may still report the development-only lint dependency chain.
+Keep the override until a published
 patched release is available, then replace it and rerun the security regression
 tests and application checks. Do not relabel the package to hide audit warnings.
 

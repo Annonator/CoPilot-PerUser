@@ -1,16 +1,16 @@
-FROM node:26-alpine AS deps
+FROM node:26.12.1-alpine3.24 AS deps
 WORKDIR /app
-COPY package.json package-lock.json ./
+COPY package.json package-lock.json .npmrc ./
 RUN npm ci
 
-FROM node:26-alpine AS build
+FROM node:26.12.1-alpine3.24 AS build
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npm run build
 
-FROM node:26-alpine AS runner
+FROM node:26.12.1-alpine3.24 AS runner
 RUN apk upgrade --no-cache \
     && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 WORKDIR /app

@@ -18,27 +18,27 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "jose": "^6.2.3",
-    "next": "^16.4.1",
+    "jose": "^6.2.14",
+    "next": "^16.4.3",
     "next-auth": "5.0.0-beta.32",
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "server-only": "^0.0.1"
   },
   "overrides": {
     "braces": "https://codeload.github.com/micromatch/braces/tar.gz/97308a01d091b211cf015314a2d0696da28a5392"
   },
   "devDependencies": {
-    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.1.0",
-    "@types/node": "^26.1.0",
+    "@types/node": "^26.6.6",
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
     "@vitejs/plugin-react": "^6.0.3",
-    "eslint": "^9.39.4",
-    "eslint-config-next": "^16.4.1",
-    "jsdom": "^29.1.1",
-    "typescript": "^6.0.3",
-    "vitest": "^5.0.3"
+    "eslint": "^10.13.0",
+    "eslint-config-next": "^16.4.3",
+    "jsdom": "^30.1.3",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
   }
 }

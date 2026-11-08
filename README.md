@@ -156,6 +156,45 @@ WEB_BASE_URL=http://localhost:3000
 `replace-with-google-client-id`, Google will reject sign-in with
 `Error 401: invalid_client`.
 
+### Session Lifetime and Offboarding
+
+Google sessions have a fixed one-hour lifetime from the last successful OAuth
+sign-in. Reading or updating `/api/auth/session` cannot extend it; users must
+complete Google OAuth again. Existing cookies from before this policy lack the
+required authentication timestamp and subject and must sign in again. Internal
+API tokens still expire after five minutes.
+
+The app does not query an authoritative employment directory. A verified company
+email, Google userinfo response, or a GitHub SAML link is not proof of current
+employment. If Google blocks new OAuth sign-ins for a departing user, an existing
+app session can retain access for up to one hour, followed by at most five minutes
+for an already-issued API token. If Google continues to authorize the account,
+the user can sign in again unless explicitly revoked here.
+
+For selective offboarding, set either or both web-only comma-separated deny lists:
+
+```env
+AUTH_REVOKED_GOOGLE_SUBJECTS=google-subject-id
+AUTH_REVOKED_EMAILS=departed.user@your-company.com
+```
+
+Use the exact stable Google `sub` identifier when available; it is retained in
+the encrypted server session cookie and is not exposed in the public session
+response. Email entries match case-insensitively. Email revocation is also useful
+when the subject is not available, and denies new sign-ins for that address.
+Deny lists are checked on new sign-ins, every session read or refresh, and again
+when the web service resolves a session to mint an internal API token. They do
+not depend on a database or Google Workspace admin credentials.
+
+Update the deployment's runtime environment and restart/redeploy **every web
+instance**; an env-file edit alone does not update a running process. With
+Compose, recreate `web` after updating `.env` (`docker compose up -d --force-recreate web`).
+Drain old replicas before declaring revocation propagated. After all web instances
+use the new lists, no new API tokens can be issued for the revoked identity;
+already-issued tokens can remain valid for at most five minutes. Immediate
+authoritative deprovisioning requires an external offboarding hook and revocation
+at the API boundary, which this database-free deployment does not provide.
+
 ### GitHub Enterprise Billing Access
 
 The API service calls GitHub Enterprise billing and budget endpoints server-side.

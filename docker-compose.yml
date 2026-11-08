@@ -32,6 +32,8 @@ services:
       AUTH_SECRET: ${AUTH_SECRET:?AUTH_SECRET must be set in .env or shell}
       AUTH_GOOGLE_ID: ${AUTH_GOOGLE_ID:-replace-with-google-client-id}
       AUTH_GOOGLE_SECRET: ${AUTH_GOOGLE_SECRET:-replace-with-google-client-secret}
+      AUTH_REVOKED_GOOGLE_SUBJECTS: ${AUTH_REVOKED_GOOGLE_SUBJECTS:-}
+      AUTH_REVOKED_EMAILS: ${AUTH_REVOKED_EMAILS:-}
       AUTH_DEV_EMAIL: ${AUTH_DEV_EMAIL:-}
       AUTH_DEV_NAME: ${AUTH_DEV_NAME:-Local Demo User}
       APP_TOKEN_SECRET: ${APP_TOKEN_SECRET:?APP_TOKEN_SECRET must be set in .env or shell}

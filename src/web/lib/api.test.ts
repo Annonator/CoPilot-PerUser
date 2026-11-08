@@ -6,6 +6,8 @@ describe("getMonthlyUsage", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   it("does not expose raw non-OK response bodies in thrown errors", async () => {
@@ -42,6 +44,49 @@ describe("getMonthlyUsage", () => {
       Accept: "application/json"
     });
     expect(init?.headers).not.toHaveProperty("X-Serverless-Authorization");
+  });
+
+  it.each(["API headers", "API body", "metadata headers", "metadata body"])(
+    "bounds stalled %s and clears its timer",
+    async (stage) => {
+      vi.useFakeTimers();
+      vi.stubEnv("API_BASE_URL", "https://api.example.test");
+      if (stage.startsWith("metadata")) {
+        vi.stubEnv("API_ID_TOKEN_AUDIENCE", `https://timeout-${stage.replaceAll(" ", "-")}.example.test`);
+      }
+      const fetchMock = vi.fn<typeof fetch>(async (_input, init) => {
+        const signal = init?.signal;
+        expect(signal).toBeInstanceOf(AbortSignal);
+        const pending = new Promise<never>((_resolve, reject) => {
+          signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+        });
+        if (stage.endsWith("headers")) {
+          return pending;
+        }
+        return {
+          ok: true,
+          json: () => pending,
+          text: () => pending
+        } as unknown as Response;
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      const result = getMonthlyUsage({ token: "app-token", year: 2026, month: 6 });
+      const rejected = expect(result).rejects.toMatchObject({ name: "TimeoutError" });
+      await vi.advanceTimersByTimeAsync(55_000);
+      await rejected;
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(vi.getTimerCount()).toBe(0);
+    }
+  );
+
+  it("clears its timer after a successful response body", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("API_BASE_URL", "https://api.example.test");
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ period: { year: 2026, month: 6 } })));
+    await expect(getMonthlyUsage({ token: "app-token", year: 2026, month: 6 })).resolves.toMatchObject({
+      period: { year: 2026, month: 6 }
+    });
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("adds a Cloud Run IAM identity token when an API audience is configured", async () => {

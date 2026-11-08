@@ -17,7 +17,12 @@ const sourceGitHubEnterpriseBillingAICreditUsage = "github_enterprise_billing_ai
 
 const DefaultReportingWindowMonths = 6
 
+// Bound shared work independently of the lifetime of any one HTTP request.
+const monthlyUsageFetchTimeout = 45 * time.Second
+const maxInflightWaiters = 64
+
 var (
+	ErrTooManyWaiters   = errors.New("too many concurrent usage requests")
 	ErrInvalidPeriod    = errors.New("invalid period")
 	ErrPeriodOutOfRange = errors.New("period outside reporting window")
 )
@@ -42,12 +47,13 @@ type ServiceConfig struct {
 }
 
 type Service struct {
-	enterprise string
-	resolver   identity.Resolver
-	billing    BillingClient
-	budget     BudgetResolver
-	cacheTTL   time.Duration
-	now        func() time.Time
+	enterprise   string
+	resolver     identity.Resolver
+	billing      BillingClient
+	budget       BudgetResolver
+	cacheTTL     time.Duration
+	fetchTimeout time.Duration
+	now          func() time.Time
 
 	reportingWindowMonths int
 
@@ -69,9 +75,10 @@ type cacheEntry struct {
 }
 
 type inflightCall struct {
-	done  chan struct{}
-	usage MonthlyUsage
-	err   error
+	waiters int
+	done    chan struct{}
+	usage   MonthlyUsage
+	err     error
 }
 
 func NewService(config ServiceConfig) *Service {
@@ -85,6 +92,7 @@ func NewService(config ServiceConfig) *Service {
 		billing:               config.Billing,
 		budget:                config.Budget,
 		cacheTTL:              config.CacheTTL,
+		fetchTimeout:          monthlyUsageFetchTimeout,
 		now:                   now,
 		reportingWindowMonths: normalizeReportingWindowMonths(config.ReportingWindowMonths),
 		cache:                 make(map[cacheKey]cacheEntry),
@@ -93,6 +101,9 @@ func NewService(config ServiceConfig) *Service {
 }
 
 func (s *Service) GetMonthlyUsage(ctx context.Context, email string, year, month int) (MonthlyUsage, error) {
+	if err := ctx.Err(); err != nil {
+		return MonthlyUsage{}, err
+	}
 	if err := ValidateReportingPeriod(year, month, s.now(), s.reportingWindowMonths); err != nil {
 		return MonthlyUsage{}, err
 	}
@@ -112,37 +123,57 @@ func (s *Service) GetMonthlyUsage(ctx context.Context, email string, year, month
 		return MonthlyUsage{}, fmt.Errorf("empty GitHub login for authenticated user")
 	}
 
+	if err := ctx.Err(); err != nil {
+		return MonthlyUsage{}, err
+	}
+
 	key := cacheKey{
 		enterprise: s.enterprise,
 		login:      login,
 		year:       year,
 		month:      month,
 	}
-	usage, cached, call, owner := s.beginFetch(key)
+	usage, cached, call, owner, err := s.beginFetch(key)
+	if err != nil {
+		return MonthlyUsage{}, err
+	}
 	if cached {
 		usage.User.Email = email
 		usage.SourceMetadata.Cached = true
 		return usage, nil
 	}
-	if !owner {
-		<-call.done
+	defer s.releaseWaiter(call)
+	if owner {
+		// Shared work must survive one caller disconnecting, but never run forever.
+		sharedCtx, cancel := context.WithTimeout(context.Background(), s.fetchTimeout)
+		go func() {
+			defer cancel()
+			result, err := s.fetchMonthlyUsage(sharedCtx, email, login, year, month)
+			if err == nil {
+				err = sharedCtx.Err()
+			}
+			if err == nil {
+				s.store(key, result)
+			}
+			s.finishInflight(key, call, result, err)
+		}()
+	}
+
+	// The initiating request and followers are all cancellable waiters.
+	select {
+	case <-ctx.Done():
+		return MonthlyUsage{}, ctx.Err()
+	case <-call.done:
+		if err := ctx.Err(); err != nil {
+			return MonthlyUsage{}, err
+		}
 		if call.err != nil {
 			return MonthlyUsage{}, call.err
 		}
-		usage := cloneMonthlyUsage(call.usage)
-		usage.User.Email = email
-		return usage, nil
+		result := cloneMonthlyUsage(call.usage)
+		result.User.Email = email
+		return result, nil
 	}
-
-	usage, err = s.fetchMonthlyUsage(ctx, email, login, year, month)
-	if err == nil {
-		s.store(key, usage)
-	}
-	s.finishInflight(key, call, usage, err)
-	if err != nil {
-		return MonthlyUsage{}, err
-	}
-	return usage, nil
 }
 
 func (s *Service) fetchMonthlyUsage(ctx context.Context, email, login string, year, month int) (MonthlyUsage, error) {
@@ -258,7 +289,7 @@ func serialMonth(year, month int) int {
 	return year*12 + month - 1
 }
 
-func (s *Service) beginFetch(key cacheKey) (MonthlyUsage, bool, *inflightCall, bool) {
+func (s *Service) beginFetch(key cacheKey) (MonthlyUsage, bool, *inflightCall, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -266,19 +297,29 @@ func (s *Service) beginFetch(key cacheKey) (MonthlyUsage, bool, *inflightCall, b
 		entry, ok := s.cache[key]
 		if ok {
 			if s.now().Before(entry.expiresAt) {
-				return cloneMonthlyUsage(entry.usage), true, nil, false
+				return cloneMonthlyUsage(entry.usage), true, nil, false, nil
 			}
 			delete(s.cache, key)
 		}
 	}
 
 	if call, ok := s.inflight[key]; ok {
-		return MonthlyUsage{}, false, call, false
+		if call.waiters >= maxInflightWaiters {
+			return MonthlyUsage{}, false, nil, false, ErrTooManyWaiters
+		}
+		call.waiters++
+		return MonthlyUsage{}, false, call, false, nil
 	}
 
-	call := &inflightCall{done: make(chan struct{})}
+	call := &inflightCall{done: make(chan struct{}), waiters: 1}
 	s.inflight[key] = call
-	return MonthlyUsage{}, false, call, true
+	return MonthlyUsage{}, false, call, true, nil
+}
+
+func (s *Service) releaseWaiter(call *inflightCall) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	call.waiters--
 }
 
 func (s *Service) store(key cacheKey, usage MonthlyUsage) {
@@ -296,14 +337,12 @@ func (s *Service) store(key cacheKey, usage MonthlyUsage) {
 }
 
 func (s *Service) finishInflight(key cacheKey, call *inflightCall, usage MonthlyUsage, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	call.usage = cloneMonthlyUsage(usage)
 	call.err = err
-
-	close(call.done)
-
-	s.mu.Lock()
 	delete(s.inflight, key)
-	s.mu.Unlock()
+	close(call.done)
 }
 
 func normalizeModels(items []gh.AICreditUsageItem) []ModelUsage {

@@ -3,9 +3,13 @@ package identity
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -31,21 +35,47 @@ query ResolveGitHubLogin($enterprise: String!, $email: String!) {
   }
 }`
 
-type GitHubSAMLResolver struct {
-	baseURL    string
-	token      string
-	enterprise string
-	httpClient *http.Client
-	cacheTTL   time.Duration
-	now        func() time.Time
+// These limits are per resolver/process. Replicas sharing a GitHub credential
+// must account for their combined request rate when sizing a deployment.
+const (
+	githubSAMLNegativeTTL      = 30 * time.Second
+	githubSAMLBackoff          = 5 * time.Second
+	githubSAMLMaxBackoff       = time.Minute
+	githubSAMLRequestInterval  = time.Second
+	githubSAMLOperationTimeout = 10 * time.Second
+	githubSAMLMaxConcurrent    = 4
+	githubSAMLMaxCacheEntries  = 1024
+	githubSAMLMaxResponseBytes = 64 << 10
+)
 
-	mu    sync.Mutex
-	cache map[string]githubSAMLCacheEntry
+var errGitHubSAMLBusy = errors.New("GitHub GraphQL identity temporarily unavailable")
+
+type GitHubSAMLResolver struct {
+	baseURL          string
+	token            string
+	enterprise       string
+	httpClient       *http.Client
+	cacheTTL         time.Duration
+	now              func() time.Time
+	operationTimeout time.Duration
+
+	mu            sync.Mutex
+	cache         map[[sha256.Size]byte]githubSAMLCacheEntry
+	inflight      map[[sha256.Size]byte]*githubSAMLCall
+	nextRequestAt time.Time
+	failures      uint
 }
 
 type githubSAMLCacheEntry struct {
 	expiresAt time.Time
 	login     string
+	err       error
+}
+
+type githubSAMLCall struct {
+	done  chan struct{}
+	login string
+	err   error
 }
 
 func NewGitHubSAMLResolver(baseURL, token, enterprise string, cacheTTL time.Duration, httpClient *http.Client) *GitHubSAMLResolver {
@@ -53,35 +83,156 @@ func NewGitHubSAMLResolver(baseURL, token, enterprise string, cacheTTL time.Dura
 		httpClient = http.DefaultClient
 	}
 	return &GitHubSAMLResolver{
-		baseURL:    strings.TrimRight(baseURL, "/"),
-		token:      token,
-		enterprise: enterprise,
-		httpClient: httpClient,
-		cacheTTL:   cacheTTL,
-		now:        time.Now,
-		cache:      make(map[string]githubSAMLCacheEntry),
+		baseURL:          strings.TrimRight(baseURL, "/"),
+		token:            token,
+		enterprise:       enterprise,
+		httpClient:       httpClient,
+		cacheTTL:         cacheTTL,
+		now:              time.Now,
+		operationTimeout: githubSAMLOperationTimeout,
+		cache:            make(map[[sha256.Size]byte]githubSAMLCacheEntry),
+		inflight:         make(map[[sha256.Size]byte]*githubSAMLCall),
 	}
 }
 
 func (r *GitHubSAMLResolver) ResolveGitHubLogin(ctx context.Context, email string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	normalizedEmail := normalizeEmail(email)
 	if normalizedEmail == "" {
 		return "", fmt.Errorf("%w: empty email", ErrIdentityNotFound)
 	}
-	if login, ok := r.cached(normalizedEmail); ok {
-		return login, nil
+	// Fixed-size keys bound retained key memory without changing identity syntax.
+	key := sha256.Sum256([]byte(normalizedEmail))
+	r.mu.Lock()
+	now := r.now()
+	if entry, ok := r.cache[key]; ok {
+		if now.Before(entry.expiresAt) {
+			r.mu.Unlock()
+			return entry.login, entry.err
+		}
+		delete(r.cache, key)
+	}
+	call, exists := r.inflight[key]
+	if !exists {
+		// Reject excess distinct identities without retaining a queue or starting
+		// goroutines. Cached identities and existing waiters bypass this admission.
+		if len(r.inflight) >= githubSAMLMaxConcurrent || now.Before(r.nextRequestAt) {
+			r.mu.Unlock()
+			return "", errGitHubSAMLBusy
+		}
+		call = &githubSAMLCall{done: make(chan struct{})}
+		r.inflight[key] = call
+		r.nextRequestAt = now.Add(githubSAMLRequestInterval)
+		go r.resolve(key, normalizedEmail, call)
+	}
+	r.mu.Unlock()
+	select {
+	case <-ctx.Done():
+		return "", ctx.Err()
+	case <-call.done:
+		return call.login, call.err
+	}
+}
+
+func (r *GitHubSAMLResolver) resolve(key [sha256.Size]byte, email string, call *githubSAMLCall) {
+	// A caller disconnecting must not cancel a shared lookup and enable another
+	// quota-consuming attempt. This work is independently bounded by a deadline.
+	ctx, cancel := context.WithTimeout(context.Background(), r.operationTimeout)
+	defer cancel()
+	response, err := r.queryExternalIdentity(ctx, email)
+	var login string
+	if err == nil {
+		login, err = resolveLoginFromGraphQL(response, email)
 	}
 
-	response, err := r.queryExternalIdentity(ctx, normalizedEmail)
-	if err != nil {
-		return "", err
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	now := r.now()
+	ttl := r.cacheTTL
+	if errors.Is(err, ErrIdentityNotFound) || errors.Is(err, ErrIdentityAmbiguous) {
+		ttl = githubSAMLNegativeTTL
+		r.failures = 0
+	} else if err != nil {
+		if r.failures < 5 {
+			r.failures++
+		}
+		ttl = min(githubSAMLBackoff<<(r.failures-1), githubSAMLMaxBackoff)
+		var statusErr *githubSAMLStatusError
+		if errors.As(err, &statusErr) {
+			ttl = max(ttl, statusErr.retryAfter)
+		}
+		// A global cooldown also protects quota when callers vary their identities.
+		r.nextRequestAt = maxTime(r.nextRequestAt, now.Add(ttl))
+	} else {
+		r.failures = 0
 	}
-	login, err := resolveLoginFromGraphQL(response, normalizedEmail)
-	if err != nil {
-		return "", err
+	if ttl > 0 {
+		r.storeLocked(key, githubSAMLCacheEntry{expiresAt: now.Add(ttl), login: login, err: err}, now)
 	}
-	r.store(normalizedEmail, login)
-	return login, nil
+	call.login, call.err = login, err
+	delete(r.inflight, key)
+	close(call.done)
+}
+
+func maxTime(a, b time.Time) time.Time {
+	if a.After(b) {
+		return a
+	}
+	return b
+}
+
+// storeLocked bounds both positive and negative/transient state. Evict expired
+// entries first, then the entry with the earliest expiry when at capacity.
+func (r *GitHubSAMLResolver) storeLocked(key [sha256.Size]byte, entry githubSAMLCacheEntry, now time.Time) {
+	var oldestKey [sha256.Size]byte
+	var oldest time.Time
+	for k, value := range r.cache {
+		if !now.Before(value.expiresAt) {
+			delete(r.cache, k)
+			continue
+		}
+		if oldest.IsZero() || value.expiresAt.Before(oldest) {
+			oldest, oldestKey = value.expiresAt, k
+		}
+	}
+	if len(r.cache) >= githubSAMLMaxCacheEntries {
+		delete(r.cache, oldestKey)
+	}
+	r.cache[key] = entry
+}
+
+// Keep Retry-After local and bounded; it is never exposed in API errors.
+type githubSAMLStatusError struct {
+	status     int
+	retryAfter time.Duration
+}
+
+func (e *githubSAMLStatusError) Error() string {
+	return fmt.Sprintf("GitHub GraphQL identity status %d", e.status)
+}
+
+func boundedRetryAfter(value string, now time.Time) time.Duration {
+	value = strings.TrimSpace(value)
+	seconds, err := strconv.ParseInt(value, 10, 64)
+	if errors.Is(err, strconv.ErrRange) && !strings.HasPrefix(value, "-") {
+		return githubSAMLMaxBackoff
+	}
+	if err == nil {
+		// Compare seconds before converting to Duration to avoid integer overflow.
+		if seconds <= 0 {
+			return 0
+		}
+		if seconds >= int64(githubSAMLMaxBackoff/time.Second) {
+			return githubSAMLMaxBackoff
+		}
+		return time.Duration(seconds) * time.Second
+	}
+	if date, err := http.ParseTime(value); err == nil {
+		return min(max(date.Sub(now), 0), githubSAMLMaxBackoff)
+	}
+	return 0
 }
 
 func (r *GitHubSAMLResolver) queryExternalIdentity(ctx context.Context, email string) (githubSAMLGraphQLResponse, error) {
@@ -113,11 +264,11 @@ func (r *GitHubSAMLResolver) queryExternalIdentity(ctx context.Context, email st
 	defer resp.Body.Close()
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return githubSAMLGraphQLResponse{}, fmt.Errorf("GitHub GraphQL identity status %d", resp.StatusCode)
+		return githubSAMLGraphQLResponse{}, &githubSAMLStatusError{status: resp.StatusCode, retryAfter: boundedRetryAfter(resp.Header.Get("Retry-After"), r.now())}
 	}
 
 	var graphQLResponse githubSAMLGraphQLResponse
-	if err := json.NewDecoder(resp.Body).Decode(&graphQLResponse); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, githubSAMLMaxResponseBytes)).Decode(&graphQLResponse); err != nil {
 		return githubSAMLGraphQLResponse{}, fmt.Errorf("decode GitHub GraphQL identity: %w", err)
 	}
 	if len(graphQLResponse.Errors) > 0 {
@@ -161,39 +312,6 @@ func resolveLoginFromGraphQL(response githubSAMLGraphQLResponse, email string) (
 		return "", fmt.Errorf("%w: SAML identity is not linked to a GitHub user", ErrIdentityNotFound)
 	}
 	return strings.TrimSpace(match.User.Login), nil
-}
-
-func (r *GitHubSAMLResolver) cached(email string) (string, bool) {
-	if r.cacheTTL <= 0 {
-		return "", false
-	}
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	entry, ok := r.cache[email]
-	if !ok {
-		return "", false
-	}
-	if !r.now().Before(entry.expiresAt) {
-		delete(r.cache, email)
-		return "", false
-	}
-	return entry.login, true
-}
-
-func (r *GitHubSAMLResolver) store(email, login string) {
-	if r.cacheTTL <= 0 {
-		return
-	}
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	r.cache[email] = githubSAMLCacheEntry{
-		expiresAt: r.now().Add(r.cacheTTL),
-		login:     login,
-	}
 }
 
 func normalizeEmail(email string) string {

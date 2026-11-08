@@ -15,6 +15,7 @@ import (
 )
 
 const (
+	githubRequestTimeout  = 15 * time.Second
 	httpReadHeaderTimeout = 5 * time.Second
 	httpReadTimeout       = 15 * time.Second
 	httpWriteTimeout      = 60 * time.Second
@@ -27,6 +28,7 @@ func main() {
 		log.Fatalf("load config: %v", err)
 	}
 
+	githubHTTPClient := newGitHubHTTPClient()
 	var resolver identity.Resolver
 	switch cfg.GitHubIdentityResolver {
 	case "static":
@@ -35,7 +37,7 @@ func main() {
 			log.Fatalf("create static identity resolver: %v", err)
 		}
 	case "github_saml":
-		resolver = identity.NewGitHubSAMLResolver(cfg.GitHubAPIBaseURL, cfg.GitHubAdminToken, cfg.GitHubEnterpriseSlug, cfg.UsageCacheTTL, http.DefaultClient)
+		resolver = identity.NewGitHubSAMLResolver(cfg.GitHubAPIBaseURL, cfg.GitHubAdminToken, cfg.GitHubEnterpriseSlug, cfg.UsageCacheTTL, githubHTTPClient)
 	default:
 		log.Fatalf("unsupported identity resolver: %s", cfg.GitHubIdentityResolver)
 	}
@@ -47,7 +49,7 @@ func main() {
 		billingClient = fixtureClient
 		budgetClient = fixtureClient
 	} else {
-		githubClient := gh.NewBillingClient(cfg.GitHubAPIBaseURL, cfg.GitHubAdminToken, http.DefaultClient)
+		githubClient := gh.NewBillingClient(cfg.GitHubAPIBaseURL, cfg.GitHubAdminToken, githubHTTPClient)
 		billingClient = githubClient
 		budgetClient = githubClient
 	}
@@ -86,5 +88,15 @@ func newHTTPServer(addr string, handler http.Handler) *http.Server {
 		ReadTimeout:       httpReadTimeout,
 		WriteTimeout:      httpWriteTimeout,
 		IdleTimeout:       httpIdleTimeout,
+	}
+}
+
+// Client.Timeout covers dialing, redirects, headers, and response body reads.
+func newGitHubHTTPClient() *http.Client {
+	return &http.Client{
+		Timeout: githubRequestTimeout,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
 	}
 }

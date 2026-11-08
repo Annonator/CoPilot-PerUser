@@ -261,6 +261,18 @@ func TestUsageReturnsUnauthorizedAndForbiddenBeforeLookup(t *testing.T) {
 	}
 }
 
+func TestUsageReturnsTooManyRequestsForWaiterSaturation(t *testing.T) {
+	server := NewServer(testServerConfig(&fakeUsageService{err: usage.ErrTooManyWaiters}))
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/usage?year=2026&month=6", nil)
+	req.Header.Set("Authorization", "Bearer "+testToken(t, "andreas.pohl@nitrado.net", "Andreas Pohl"))
+	server.ServeHTTP(resp, req)
+	if resp.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want %d", resp.Code, http.StatusTooManyRequests)
+	}
+	assertJSONError(t, resp, "too_many_requests")
+}
+
 func TestUsageReturnsBadGatewayForLookupFailure(t *testing.T) {
 	usageService := &fakeUsageService{err: errors.New("github admin token leaked")}
 	server := NewServer(testServerConfig(usageService))

@@ -30,19 +30,29 @@ export async function getMonthlyUsage({ token, year, month }: GetUsageInput): Pr
     Authorization: `Bearer ${token}`,
     Accept: "application/json"
   };
-  const cloudRunAuthorization = await cloudRunIdentityAuthorizationHeader();
-  if (cloudRunAuthorization) {
-    headers["X-Serverless-Authorization"] = cloudRunAuthorization;
+  // Cover metadata authentication, API headers, and response body consumption.
+  const controller = new AbortController();
+  const timeout = setTimeout(() => {
+    controller.abort(new DOMException("Usage API request timed out.", "TimeoutError"));
+  }, 55_000);
+  try {
+    const cloudRunAuthorization = await cloudRunIdentityAuthorizationHeader(controller.signal);
+    if (cloudRunAuthorization) {
+      headers["X-Serverless-Authorization"] = cloudRunAuthorization;
+    }
+
+    const response = await fetch(url, {
+      headers,
+      cache: "no-store",
+      signal: controller.signal
+    });
+
+    if (!response.ok) {
+      throw new UsageApiError(response.status);
+    }
+
+    return await response.json() as MonthlyUsage;
+  } finally {
+    clearTimeout(timeout);
   }
-
-  const response = await fetch(url, {
-    headers,
-    cache: "no-store"
-  });
-
-  if (!response.ok) {
-    throw new UsageApiError(response.status);
-  }
-
-  return response.json() as Promise<MonthlyUsage>;
 }

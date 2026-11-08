@@ -13,17 +13,17 @@ type CachedToken = {
 
 let cachedToken: CachedToken | undefined;
 
-export async function cloudRunIdentityAuthorizationHeader(): Promise<string | undefined> {
+export async function cloudRunIdentityAuthorizationHeader(signal?: AbortSignal): Promise<string | undefined> {
   const audience = process.env.API_ID_TOKEN_AUDIENCE?.trim();
   if (!audience) {
     return undefined;
   }
 
-  const token = await fetchCloudRunIdentityToken(audience);
+  const token = await fetchCloudRunIdentityToken(audience, signal);
   return `Bearer ${token}`;
 }
 
-async function fetchCloudRunIdentityToken(audience: string): Promise<string> {
+async function fetchCloudRunIdentityToken(audience: string, signal?: AbortSignal): Promise<string> {
   const now = Date.now();
   if (
     cachedToken?.audience === audience &&
@@ -39,7 +39,8 @@ async function fetchCloudRunIdentityToken(audience: string): Promise<string> {
     headers: {
       "Metadata-Flavor": "Google"
     },
-    cache: "no-store"
+    cache: "no-store",
+    signal
   });
   if (!response.ok) {
     throw new Error("Cloud Run identity token request failed.");

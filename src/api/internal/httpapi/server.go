@@ -97,6 +97,10 @@ func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
 
 	monthlyUsage, err := s.usage.GetMonthlyUsage(r.Context(), claims.Email, year, month)
 	if err != nil {
+		if errors.Is(err, usage.ErrTooManyWaiters) {
+			writeError(w, http.StatusTooManyRequests, "too_many_requests")
+			return
+		}
 		if errors.Is(err, identity.ErrIdentityNotFound) {
 			writeError(w, http.StatusNotFound, "not_found")
 			return

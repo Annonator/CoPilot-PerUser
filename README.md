@@ -349,3 +349,75 @@ Expected response:
 ```json
 {"status":"ok"}
 ```
+
+## Official Releases
+
+Official releases are dispatched from `main`; pushing a tag does not start the
+current release workflow. The tag must be a stable `vMAJOR.MINOR.PATCH` version
+without leading zeroes, prerelease identifiers, or build metadata. Lightweight
+and annotated tags are supported. The tag's peeled commit, the workflow commit,
+and the current remote `main` tip must be identical. All tests and image builds
+use that immutable commit. Both image publication and GitHub Release creation
+repeat the source and policy checks. If `main` advances during a release, stop
+and prepare a new release tag at the new tip.
+
+Before enabling this flow, install the server-side tag ruleset from
+[`.github/release-tag-ruleset.json`](.github/release-tag-ruleset.json). It restricts
+creation, updates, and deletion of `v*` tags to the repository owner `Annonator`
+(GitHub user ID `1070926`). The owner has an explicit bypass for all three
+operations; ordinary writers cannot change release tags. Keep the existing
+`main` pull-request ruleset enabled. The release workflow fails closed if the
+tag policy is missing, disabled, or has different public rules or exclusions.
+GitHub hides bypass actors from the read-only workflow token, so an administrator
+must separately verify the exact bypass identities with `--check` before enabling
+releases and after changes to these settings. No administrator token is stored
+in the workflow.
+
+Inspect the concrete external change without writing anything:
+
+```bash
+python3 scripts/release-tag-policy.py
+```
+
+After the repository administrator approves that exact policy, install it and
+verify it. `--apply` creates or updates only the named ruleset and verifies the
+result; repeating it makes no change when the policy already matches.
+
+```bash
+python3 scripts/release-tag-policy.py --apply
+python3 scripts/release-tag-policy.py --check
+```
+
+Then, as the trusted release owner, fetch `main`, inspect its commit, and create
+a new tag at that exact commit (replace the example version):
+
+```bash
+git fetch origin main
+git tag -a v1.2.3 origin/main -m 'Release v1.2.3'
+git push origin refs/tags/v1.2.3
+gh workflow run release.yml --ref main -f tag=v1.2.3
+```
+
+The workflow publishes both GHCR images with the version, major/minor, `latest`,
+and full commit SHA tags, then creates a GitHub Release with generated notes.
+Run the local release-policy regressions with:
+
+```bash
+python3 -m unittest discover -s scripts -p 'test_*.py' -v
+```
+
+The tag ruleset is part of the security boundary. A guard inside tag-owned YAML
+can be removed, and old commits still contain the previous automatic tag
+workflow. Changing only the workflow on `main` does not stop someone from tagging
+one of those commits. GitHub's read-only default token permission is also not a
+ceiling: a repository writer can request write permissions in a workflow. This
+setup trusts the release owner and code merged into `main`; it does not isolate
+publishing from a writer who can introduce and run an entirely new privileged
+workflow. Stronger separation requires a separately administered publishing
+repository or credential boundary.
+
+Sources: [workflow revision selection](https://docs.github.com/en/actions/concepts/workflows-and-actions/workflows),
+[manual dispatch behavior](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch),
+[tag creation/update/deletion restrictions](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets),
+[ruleset REST schema](https://docs.github.com/en/rest/repos/rules#create-a-repository-ruleset),
+and [default token permissions](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/enabling-features-for-your-repository/managing-github-actions-settings-for-a-repository#setting-the-permissions-of-the-github_token-for-your-repository).

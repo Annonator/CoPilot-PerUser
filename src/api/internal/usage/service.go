@@ -16,6 +16,8 @@ import (
 const sourceGitHubEnterpriseBillingAICreditUsage = "github_enterprise_billing_ai_credit_usage"
 
 const DefaultReportingWindowMonths = 6
+const MaxReportingWindowMonths = 12
+const requestTimeout = 45 * time.Second
 
 var (
 	ErrInvalidPeriod    = errors.New("invalid period")
@@ -50,6 +52,7 @@ type Service struct {
 	now        func() time.Time
 
 	reportingWindowMonths int
+	admission             *admission
 
 	mu       sync.Mutex
 	cache    map[cacheKey]cacheEntry
@@ -87,12 +90,13 @@ func NewService(config ServiceConfig) *Service {
 		cacheTTL:              config.CacheTTL,
 		now:                   now,
 		reportingWindowMonths: normalizeReportingWindowMonths(config.ReportingWindowMonths),
+		admission:             newAdmission(now),
 		cache:                 make(map[cacheKey]cacheEntry),
 		inflight:              make(map[cacheKey]*inflightCall),
 	}
 }
 
-func (s *Service) GetMonthlyUsage(ctx context.Context, email string, year, month int) (MonthlyUsage, error) {
+func (s *Service) GetMonthlyUsage(ctx context.Context, email string, year, month int) (result MonthlyUsage, resultErr error) {
 	if err := ValidateReportingPeriod(year, month, s.now(), s.reportingWindowMonths); err != nil {
 		return MonthlyUsage{}, err
 	}
@@ -102,6 +106,14 @@ func (s *Service) GetMonthlyUsage(ctx context.Context, email string, year, month
 	if s.billing == nil {
 		return MonthlyUsage{}, fmt.Errorf("usage billing client is required")
 	}
+
+	release, err := s.admission.beginRequest(email)
+	if err != nil {
+		return MonthlyUsage{}, err
+	}
+	defer func() { release(resultErr) }()
+	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
+	defer cancel()
 
 	login, err := s.resolver.ResolveGitHubLogin(ctx, email)
 	if err != nil {
@@ -146,6 +158,12 @@ func (s *Service) GetMonthlyUsage(ctx context.Context, email string, year, month
 }
 
 func (s *Service) fetchMonthlyUsage(ctx context.Context, email, login string, year, month int) (MonthlyUsage, error) {
+	release, err := s.admission.beginFetch(email)
+	if err != nil {
+		return MonthlyUsage{}, err
+	}
+	defer release()
+
 	monthlyReport, err := s.billing.GetAICreditUsage(ctx, gh.AICreditUsageRequest{
 		Enterprise: s.enterprise,
 		User:       login,
@@ -250,6 +268,9 @@ func ValidateReportingPeriod(year, month int, now time.Time, reportingWindowMont
 func normalizeReportingWindowMonths(months int) int {
 	if months <= 0 {
 		return DefaultReportingWindowMonths
+	}
+	if months > MaxReportingWindowMonths {
+		return MaxReportingWindowMonths
 	}
 	return months
 }

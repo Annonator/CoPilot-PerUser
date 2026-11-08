@@ -54,8 +54,8 @@ func Load() (Config, error) {
 		if err != nil {
 			return Config{}, fmt.Errorf("parse USAGE_REPORTING_WINDOW_MONTHS: %w", err)
 		}
-		if window <= 0 {
-			return Config{}, fmt.Errorf("USAGE_REPORTING_WINDOW_MONTHS must be positive")
+		if window <= 0 || window > 12 {
+			return Config{}, fmt.Errorf("USAGE_REPORTING_WINDOW_MONTHS must be between 1 and 12")
 		}
 		cfg.UsageReportingWindowMonths = window
 	}

@@ -292,3 +292,11 @@ func unsetEnv(t *testing.T, key string) {
 		_ = os.Unsetenv(key)
 	})
 }
+
+func TestLoadRejectsExcessiveUsageReportingWindow(t *testing.T) {
+	setValidEnv(t)
+	t.Setenv("USAGE_REPORTING_WINDOW_MONTHS", "13")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "between 1 and 12") {
+		t.Fatalf("Load() = %v, want bounded reporting window error", err)
+	}
+}

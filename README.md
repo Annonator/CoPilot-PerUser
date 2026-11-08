@@ -277,14 +277,15 @@ minutes by default. Configure the shared TTL with Go duration syntax:
 USAGE_CACHE_TTL=10m
 ```
 
-Examples: `5m`, `30m`, `1h`. Failed identity lookups are not cached, so fixed
-GitHub membership, SAML, or token configuration is retried on the next request.
+Examples: `5m`, `30m`, `1h`. Failed identity lookups are not cached. Failed
+usage requests apply a per-user retry cooldown starting at one second, doubling
+on consecutive failures up to 30 seconds; successful requests reset it.
 
 ### Usage Reporting Window
 
 `GET /v1/usage` accepts only recent, non-future monthly periods. The default
 window is the current month plus the previous five months. Configure a different
-positive month count when needed:
+month count from 1 through 12 when needed:
 
 ```env
 USAGE_REPORTING_WINDOW_MONTHS=6
@@ -293,6 +294,32 @@ USAGE_REPORTING_WINDOW_MONTHS=6
 Requests outside the configured window return HTTP `400` with JSON error
 `period_out_of_range`. Malformed periods and future periods return HTTP `400`
 with JSON error `bad_request`.
+
+### Usage request limits
+
+Usage admission runs after authentication and period validation, before identity
+resolution, including positive cache hits and requests joining a shared fetch.
+Per API process, a sliding 60-second window admits at most 12 requests per
+normalized authenticated email and 60 requests across all users. It permits at
+most eight active requests per user and 16 globally. Actual shared billing
+fetches have separate limits of two per user and eight globally; these slots
+remain occupied until the operation finishes, even when a waiting caller leaves.
+A request has a 45-second deadline including identity resolution. Limits and
+failure cooldowns return HTTP `429`, JSON `rate_limited`, and `Retry-After`
+seconds. Retrying after that delay remains subject to the other limits.
+
+Admission conservatively reserves a maximum of 55 logical privileged GitHub API
+invocations per accepted request: one identity query, one monthly usage query,
+up to 31 daily queries, and up to 22 budget queries. Each scoped or fallback
+budget list stops after ten pages; incomplete lists make the optional budget
+unavailable rather than returning a partial result. Cache hits and coalescing
+reduce actual work without refunding admission quota. The default Go HTTP
+client can additionally follow up to ten redirect hops per API invocation;
+these are separate from the logical invocation count. The limits apply to each
+process independently: replicas multiply capacity, and process restarts reset
+in-memory quota. They do not coordinate a shared enterprise-wide GitHub quota.
+The admission table holds at most 4096 principals and only forgets inactive
+entries after their rate history and cooldown expire.
 
 The monthly usage response includes monthly totals, model breakdowns, daily rows
 populated from day-filtered GitHub billing calls, and current user budget status

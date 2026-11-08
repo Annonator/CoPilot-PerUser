@@ -149,10 +149,9 @@ func (s *Service) GetMonthlyUsage(ctx context.Context, email string, year, month
 		go func() {
 			defer cancel()
 			result, err := s.fetchMonthlyUsage(sharedCtx, email, login, year, month)
-			if err == nil {
-				err = sharedCtx.Err()
-			}
-			if err == nil {
+			// Optional budget resolution may exhaust the shared deadline after
+			// mandatory usage completed. Return its degraded result, but do not cache it.
+			if err == nil && sharedCtx.Err() == nil {
 				s.store(key, result)
 			}
 			s.finishInflight(key, call, result, err)
@@ -189,6 +188,12 @@ func (s *Service) fetchMonthlyUsage(ctx context.Context, email, login string, ye
 
 	daily, err := s.fetchDailyUsage(ctx, login, year, month)
 	if err != nil {
+		return MonthlyUsage{}, err
+	}
+
+	// Reject late mandatory responses even if a client ignored cancellation.
+	// Budget lookup below remains optional and may return an unavailable status.
+	if err := ctx.Err(); err != nil {
 		return MonthlyUsage{}, err
 	}
 

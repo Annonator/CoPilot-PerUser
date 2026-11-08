@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"copilot-per-user/api/internal/budget"
 	gh "copilot-per-user/api/internal/github"
 )
 
@@ -85,6 +86,60 @@ func TestServiceSharedDeadlineCleansUpAndAllowsRetry(t *testing.T) {
 	result, err := service.GetMonthlyUsage(context.Background(), "alice@example.test", 2026, 6)
 	if err != nil || result.SourceMetadata.Cached || calls.Load() != 3 {
 		t.Fatalf("retry = %#v, %v; calls = %d", result, err, calls.Load())
+	}
+}
+
+type budgetFunc func(context.Context, string) (budget.UserBudget, error)
+
+func (f budgetFunc) ResolveUserBudget(ctx context.Context, login string) (budget.UserBudget, error) {
+	return f(ctx, login)
+}
+
+func TestServiceOptionalBudgetTimeoutPreservesUsageWithoutCaching(t *testing.T) {
+	service := NewService(ServiceConfig{
+		Resolver: &fakeResolver{login: "alice"}, CacheTTL: time.Minute,
+		Now: func() time.Time { return time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC) },
+		Billing: &fakeBilling{report: gh.AICreditUsageReport{
+			UsageItems: []gh.AICreditUsageItem{{Model: "model", DiscountQuantity: 7}},
+		}},
+		Budget: budgetFunc(func(ctx context.Context, _ string) (budget.UserBudget, error) {
+			<-ctx.Done()
+			return budget.UserBudget{}, ctx.Err()
+		}),
+	})
+	service.fetchTimeout = 30 * time.Millisecond
+	result, err := service.GetMonthlyUsage(context.Background(), "alice@example.test", 2026, 6)
+	if err != nil {
+		t.Fatalf("optional budget timeout discarded valid usage: %v", err)
+	}
+	if result.Totals.IncludedCredits != 7 || len(result.Daily) != 1 || result.Budget == nil || result.Budget.Status != budget.StatusUnavailable {
+		t.Fatalf("degraded usage = %#v", result)
+	}
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	if len(service.cache) != 0 || len(service.inflight) != 0 {
+		t.Fatal("expired operation retained cache or inflight state")
+	}
+}
+
+func TestServiceRejectsMandatoryUsageReturningAfterDeadline(t *testing.T) {
+	service := NewService(ServiceConfig{
+		Resolver: &fakeResolver{login: "alice"}, CacheTTL: time.Minute,
+		Now: func() time.Time { return time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC) },
+		Billing: billingFunc(func(ctx context.Context, _ gh.AICreditUsageRequest) (gh.AICreditUsageReport, error) {
+			<-ctx.Done()
+			return gh.AICreditUsageReport{}, nil
+		}),
+	})
+	service.fetchTimeout = 30 * time.Millisecond
+	_, err := service.GetMonthlyUsage(context.Background(), "alice@example.test", 2026, 6)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("late mandatory usage error = %v", err)
+	}
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	if len(service.cache) != 0 || len(service.inflight) != 0 {
+		t.Fatal("late mandatory usage retained cache or inflight state")
 	}
 }
 

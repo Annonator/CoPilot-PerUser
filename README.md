@@ -277,8 +277,33 @@ minutes by default. Configure the shared TTL with Go duration syntax:
 USAGE_CACHE_TTL=10m
 ```
 
-Examples: `5m`, `30m`, `1h`. Failed identity lookups are not cached, so fixed
-GitHub membership, SAML, or token configuration is retried on the next request.
+Examples: `5m`, `30m`, `1h`. The live SAML resolver also caches missing and
+ambiguous identities for 30 seconds. Upstream failures use a process-wide
+cooldown of 5 seconds, doubling on consecutive failures up to 60 seconds.
+`Retry-After` delta-seconds and HTTP dates can extend that cooldown up to the
+same 60-second cap. Fixed membership, SAML, or token configuration is retried
+after the applicable short delay. These failure protections remain active when
+positive caching is disabled.
+
+Concurrent lookups for the same normalized email share one operation. Each
+operation has an independent 10-second deadline; disconnecting a browser only
+stops that caller waiting. The resolver admits at most four concurrent operations
+for different identities and starts at most one per second. Excess cold lookups
+fail promptly with the existing generic upstream-error response (`502`); cached
+identities and callers joining an existing lookup remain usable during overload
+or cooldown. No queue of distinct identities is retained.
+
+The completed identity cache holds at most 1,024 entries, with fixed-size hashed
+keys, expired-entry cleanup, and earliest-expiry eviction. Identity response JSON
+is limited to 64 KiB to bound retained values. Static identity maps are unchanged.
+
+These bounds apply to each API process and reset on restart. With N replicas
+sharing a GitHub credential, the aggregate bound is N concurrent lookup starts
+per second and 4N active identity operations (at most N × (1 + floor(T / 1s))
+lookup starts in an interval of length T). This is an identity-lookup bound;
+billing requests consume additional shared quota. Size the replica count against
+the credential's available quota; this in-memory design has no cross-process
+limiter or shared datastore.
 
 ### Usage Reporting Window
 

@@ -105,8 +105,32 @@ Cache successful `email -> githubLogin` resolutions in memory using the existing
 minutes is enough to reduce repeated GraphQL calls without making identity
 changes stale for long.
 
-Do not cache errors at first. No-match and permission failures should recover as
-soon as GitHub or configuration is fixed.
+The resolver now caches deterministic no-match and ambiguous results for 30
+seconds. Transient upstream failures trigger a shared cooldown starting at 5
+seconds and doubling up to 60 seconds. A valid `Retry-After` value (seconds or
+HTTP date) may extend this delay up to 60 seconds. Positive TTL configuration
+does not disable these failure protections. Corrections become visible after
+the applicable cache or cooldown expires.
+
+Normalize email once, then use its fixed-size SHA-256 hash for cache and in-flight
+keys. Concurrent callers for the same identity share the same positive,
+deterministic-negative, or transient outcome. Each caller can cancel its own
+wait; the upstream operation has its own 10-second deadline so caller churn
+cannot repeatedly restart it. The static resolver is unchanged.
+
+Across distinct identities, admit at most four active operations and space
+lookup starts by at least one second. Reject overload and cooldown requests
+without allocating queued work. Cached identities and existing in-flight
+operations are consulted before this admission check, preserving their use
+during overload. Admission failures remain generic upstream errors (`502`).
+
+Keep at most 1,024 completed entries, deleting expired entries and evicting the
+earliest expiry at capacity. Limit decoded identity responses to 64 KiB so
+retained values are bounded alongside fixed-size keys. No shared service or
+database is added. These controls are local to the API process and reset when
+it restarts: N replicas may start N identity lookups per second and keep 4N
+operations active, in addition to billing calls sharing the credential. Deployment
+sizing must account for this aggregate bound and the available GitHub quota.
 
 ## Error Handling
 

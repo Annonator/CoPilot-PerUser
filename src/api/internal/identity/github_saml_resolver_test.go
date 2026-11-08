@@ -258,9 +258,7 @@ func TestGitHubSAMLResolverReturnsAmbiguousForDuplicateMatches(t *testing.T) {
 
 func TestGitHubSAMLResolverWrapsGraphQLErrors(t *testing.T) {
 	resolver := newTestGitHubSAMLResolver(t, `{
-		"errors"
- "fmt"
- "io": [
+		"errors": [
 			{"message": "Resource protected by organization SAML enforcement"}
 		]
 	}`)
@@ -269,8 +267,8 @@ func TestGitHubSAMLResolverWrapsGraphQLErrors(t *testing.T) {
 	if err == nil {
 		t.Fatal("ResolveGitHubLogin() error = nil, want GraphQL error")
 	}
-	if !strings.Contains(err.Error(), "GitHub GraphQL") {
-		t.Fatalf("error = %q, want GitHub GraphQL context", err.Error())
+	if !strings.Contains(err.Error(), "GitHub GraphQL identity error: Resource protected by organization SAML enforcement") {
+		t.Fatalf("error = %q, want decoded GraphQL response error", err.Error())
 	}
 }
 

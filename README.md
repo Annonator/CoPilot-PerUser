@@ -304,7 +304,9 @@ normalized authenticated email and 60 requests across all users. It permits at
 most eight active requests per user and 16 globally. Actual shared billing
 fetches have separate limits of two per user and eight globally; these slots
 remain occupied until the operation finishes, even when a waiting caller leaves.
-A request has a 45-second deadline including identity resolution. Limits and
+A request has a 55-second deadline including identity resolution. This leaves
+room for the shared fetch lifecycle after identity resolution and five seconds
+of response headroom within the HTTP server write timeout. Limits and
 failure cooldowns return HTTP `429`, JSON `rate_limited`, and `Retry-After`
 seconds. Retrying after that delay remains subject to the other limits.
 

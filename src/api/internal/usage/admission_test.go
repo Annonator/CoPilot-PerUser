@@ -228,3 +228,31 @@ func TestReportingWindowAlwaysCapped(t *testing.T) {
 		t.Fatalf("12 month boundary rejected: %v", err)
 	}
 }
+
+type deadlineRecordingResolver struct{ deadline time.Time }
+
+func (r *deadlineRecordingResolver) ResolveGitHubLogin(ctx context.Context, _ string) (string, error) {
+	r.deadline, _ = ctx.Deadline()
+	return "self", nil
+}
+
+func TestServiceRequestDeadlineAllowsIdentityThenSharedFetch(t *testing.T) {
+	resolver := &deadlineRecordingResolver{}
+	service := NewService(ServiceConfig{
+		Resolver: resolver,
+		Billing:  &fakeBilling{},
+		Now:      func() time.Time { return time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC) },
+	})
+	before := time.Now()
+	if _, err := service.GetMonthlyUsage(context.Background(), "self@example.com", 2026, 6); err != nil {
+		t.Fatal(err)
+	}
+	after := time.Now()
+	// The request owns enough time for the identity budget followed by the full
+	// shared-operation budget; an outer 45s deadline would discard that result.
+	minimum := before.Add(10*time.Second + 45*time.Second)
+	maximum := after.Add(55 * time.Second)
+	if resolver.deadline.Before(minimum) || resolver.deadline.After(maximum) {
+		t.Fatalf("identity deadline = %v, want 55s request deadline between %v and %v", resolver.deadline, minimum, maximum)
+	}
+}

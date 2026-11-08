@@ -17,7 +17,10 @@ const sourceGitHubEnterpriseBillingAICreditUsage = "github_enterprise_billing_ai
 
 const DefaultReportingWindowMonths = 6
 const MaxReportingWindowMonths = 12
-const requestTimeout = 45 * time.Second
+
+// Allow identity resolution (10s) before a shared fetch (45s), while leaving
+// response headroom inside the HTTP server write timeout (60s).
+const requestTimeout = 55 * time.Second
 
 var (
 	ErrInvalidPeriod    = errors.New("invalid period")

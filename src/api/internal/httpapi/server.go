@@ -97,6 +97,13 @@ func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
 
 	monthlyUsage, err := s.usage.GetMonthlyUsage(r.Context(), claims.Email, year, month)
 	if err != nil {
+		var limited *usage.RateLimitError
+		if errors.As(err, &limited) {
+			seconds := max(1, int((limited.RetryAfter+time.Second-1)/time.Second))
+			w.Header().Set("Retry-After", strconv.Itoa(seconds))
+			writeError(w, http.StatusTooManyRequests, "rate_limited")
+			return
+		}
 		if errors.Is(err, identity.ErrIdentityNotFound) {
 			writeError(w, http.StatusNotFound, "not_found")
 			return

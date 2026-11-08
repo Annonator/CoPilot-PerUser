@@ -20,6 +20,9 @@ const (
 	SourceOverride  = "override"
 )
 
+// MaxListPages bounds each of the scoped and fallback budget lists.
+const MaxListPages = 10
+
 const (
 	budgetScopeMultiUserCustomer = "multi_user_customer"
 	budgetProductAICredits       = "ai_credits"
@@ -168,7 +171,7 @@ func (r *Resolver) resolveUserBudget(ctx context.Context, login string) (UserBud
 
 func (r *Resolver) listBudgets(ctx context.Context, scope string, login string) ([]gh.Budget, error) {
 	var budgets []gh.Budget
-	for page := 1; ; page++ {
+	for page := 1; page <= MaxListPages; page++ {
 		response, err := r.client.ListBudgets(ctx, gh.BudgetListRequest{
 			Enterprise: r.enterprise,
 			Scope:      scope,
@@ -184,6 +187,7 @@ func (r *Resolver) listBudgets(ctx context.Context, scope string, login string) 
 			return budgets, nil
 		}
 	}
+	return nil, fmt.Errorf("GitHub budget list exceeds %d pages", MaxListPages)
 }
 
 func (r *Resolver) getUserState(ctx context.Context, budgetID string, login string) (gh.BudgetUserState, error) {

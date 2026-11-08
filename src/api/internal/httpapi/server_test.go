@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -335,4 +336,17 @@ func assertJSONError(t *testing.T, resp *httptest.ResponseRecorder, want string)
 	if body.Error != want {
 		t.Fatalf("error = %q, want %q", body.Error, want)
 	}
+}
+
+func TestUsageAdmissionReturns429WithRetryAfter(t *testing.T) {
+	service := &fakeUsageService{err: fmt.Errorf("wrapped: %w", &usage.RateLimitError{RetryAfter: 1500 * time.Millisecond})}
+	server := NewServer(testServerConfig(service))
+	req := httptest.NewRequest(http.MethodGet, "/v1/usage?year=2026&month=6", nil)
+	req.Header.Set("Authorization", "Bearer "+testToken(t, "andreas.pohl@nitrado.net", "Andreas Pohl"))
+	resp := httptest.NewRecorder()
+	server.ServeHTTP(resp, req)
+	if resp.Code != http.StatusTooManyRequests || resp.Header().Get("Retry-After") != "2" {
+		t.Fatalf("response = %d, retry %q", resp.Code, resp.Header().Get("Retry-After"))
+	}
+	assertJSONError(t, resp, "rate_limited")
 }

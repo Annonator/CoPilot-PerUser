@@ -477,3 +477,17 @@ func assertBoolPointer(t *testing.T, name string, got *bool, want bool) {
 		t.Fatalf("%s = %t, want %t", name, *got, want)
 	}
 }
+
+func TestResolverBoundsBudgetPagination(t *testing.T) {
+	client := &fakeBudgetClient{listResponse: gh.BudgetListResponse{HasNextPage: true}}
+	resolver := NewResolver(ResolverConfig{Client: client})
+	if _, err := resolver.ResolveUserBudget(context.Background(), "self"); err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("error = %v, want incomplete budget list rejection", err)
+	}
+	if len(client.listRequests) != MaxListPages {
+		t.Fatalf("requests = %d, want %d", len(client.listRequests), MaxListPages)
+	}
+	if len(client.userStateRequests) != 0 {
+		t.Fatal("partial budget list was used")
+	}
+}

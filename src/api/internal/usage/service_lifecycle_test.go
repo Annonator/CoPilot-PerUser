@@ -45,6 +45,7 @@ func TestServiceOwnerCancellationDoesNotPoisonFollowers(t *testing.T) {
 	if result := receiveUsage(t, owner); !errors.Is(result.err, context.Canceled) {
 		t.Fatalf("owner error = %v", result.err)
 	}
+	waitForWaiterCount(t, service, 1)
 	close(release)
 	result := receiveUsage(t, follower)
 	if result.err != nil || result.usage.User.Email != "alias@example.test" {
@@ -61,9 +62,10 @@ func TestServiceOwnerCancellationDoesNotPoisonFollowers(t *testing.T) {
 
 func TestServiceSharedDeadlineCleansUpAndAllowsRetry(t *testing.T) {
 	var calls atomic.Int32
+	now := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
 	service := NewService(ServiceConfig{
 		Resolver: &fakeResolver{login: "alice"}, CacheTTL: time.Minute,
-		Now: func() time.Time { return time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC) },
+		Now: func() time.Time { return now },
 		Billing: billingFunc(func(ctx context.Context, _ gh.AICreditUsageRequest) (gh.AICreditUsageReport, error) {
 			if calls.Add(1) == 1 {
 				<-ctx.Done()
@@ -83,6 +85,8 @@ func TestServiceSharedDeadlineCleansUpAndAllowsRetry(t *testing.T) {
 	if inflight != 0 || cached != 0 {
 		t.Fatalf("after timeout: inflight=%d cached=%d", inflight, cached)
 	}
+	// A later request can retry after transient upstream failure.
+	now = now.Add(2 * time.Second)
 	result, err := service.GetMonthlyUsage(context.Background(), "alice@example.test", 2026, 6)
 	if err != nil || result.SourceMetadata.Cached || calls.Load() != 3 {
 		t.Fatalf("retry = %#v, %v; calls = %d", result, err, calls.Load())
@@ -181,51 +185,48 @@ func TestServiceAbandonedSharedWorkExpires(t *testing.T) {
 	}
 }
 
-func TestServiceBoundsWaitersAndReleasesCanceledAdmissions(t *testing.T) {
-	release := make(chan struct{})
-	var released bool
-	defer func() {
-		if !released {
-			close(release)
-		}
-	}()
-	billing := &fakeBilling{wait: release}
+func TestServiceBoundsSharedWaiterAdmissionsAndReleasesSlots(t *testing.T) {
 	service := NewService(ServiceConfig{
-		Resolver: &fakeResolver{login: "alice"}, Billing: billing,
 		Now: func() time.Time { return time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC) },
 	})
-	owner := requestUsage(service, context.Background(), "alice@example.test")
-	waitForBillingRequest(t, billing)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	followers := make([]<-chan usageResult, 0, maxInflightWaiters-1)
-	for i := 1; i < maxInflightWaiters; i++ {
-		followers = append(followers, requestUsage(service, ctx, "alias@example.test"))
+	key := cacheKey{enterprise: "test", login: "alice", year: 2026, month: 6}
+	admissions := make([]*inflightCall, 0, maxInflightWaiters)
+	defer func() {
+		for _, call := range admissions {
+			service.releaseWaiter(call)
+		}
+	}()
+	var shared *inflightCall
+	for i := 0; i < maxInflightWaiters; i++ {
+		_, cached, call, owner, err := service.beginFetch(key)
+		if err != nil || cached || owner != (i == 0) {
+			t.Fatalf("admission %d: cached=%v owner=%v error=%v", i, cached, owner, err)
+		}
+		if i == 0 {
+			shared = call
+		} else if call != shared {
+			t.Fatal("admitted waiter did not share existing work")
+		}
+		admissions = append(admissions, call)
 	}
 	waitForWaiterCount(t, service, maxInflightWaiters)
-	_, err := service.GetMonthlyUsage(context.Background(), "overflow@example.test", 2026, 6)
-	if !errors.Is(err, ErrTooManyWaiters) {
+	if _, _, _, _, err := service.beginFetch(key); !errors.Is(err, ErrTooManyWaiters) {
 		t.Fatalf("overflow error = %v", err)
 	}
-	cancel()
-	for _, follower := range followers {
-		if result := receiveUsage(t, follower); !errors.Is(result.err, context.Canceled) {
-			t.Fatalf("canceled follower error = %v", result.err)
-		}
+	service.releaseWaiter(admissions[0])
+	admissions = admissions[1:]
+	_, cached, replacement, owner, err := service.beginFetch(key)
+	if err != nil || cached || owner || replacement != shared {
+		t.Fatalf("replacement admission: cached=%v owner=%v error=%v", cached, owner, err)
 	}
-	waitForWaiterCount(t, service, 1)
-	replacementCtx, replacementCancel := context.WithCancel(context.Background())
-	replacement := requestUsage(service, replacementCtx, "replacement@example.test")
-	waitForWaiterCount(t, service, 2)
-	replacementCancel()
-	if result := receiveUsage(t, replacement); !errors.Is(result.err, context.Canceled) {
-		t.Fatalf("replacement error = %v", result.err)
+	admissions = append(admissions, replacement)
+	waitForWaiterCount(t, service, maxInflightWaiters)
+	for _, call := range admissions {
+		service.releaseWaiter(call)
 	}
-	close(release)
-	released = true
-	if result := receiveUsage(t, owner); result.err != nil {
-		t.Fatalf("owner error = %v", result.err)
-	}
+	admissions = nil
+	waitForWaiterCount(t, service, 0)
+	service.finishInflight(key, shared, MonthlyUsage{}, nil)
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	if len(service.inflight) != 0 {

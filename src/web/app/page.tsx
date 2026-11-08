@@ -48,10 +48,7 @@ export default async function HomePage({
   let usage: MonthlyUsage | undefined;
   let errorMessage: string | undefined;
   try {
-    const token = await createAppToken({
-      email: session.user.email,
-      name: session.user.name
-    });
+    const token = await createAppToken();
     usage = await getMonthlyUsage({ token, year, month });
   } catch (error) {
     errorMessage = usageErrorMessage(error);

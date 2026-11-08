@@ -5,11 +5,17 @@ import Google from "next-auth/providers/google";
 
 import {
   firstConfiguredCompanyDomain,
-  isAllowedCompanyEmail,
-  isVerifiedAllowedCompanyEmail
+  isAllowedCompanyEmail
 } from "@/lib/company-email";
 import { devSessionFromEnv } from "@/lib/dev-session";
 import { requireServerSecret } from "@/lib/server-secret";
+import {
+  AUTH_SESSION_MAX_AGE_SECONDS,
+  createGoogleSessionToken,
+  isAllowedGoogleSignIn,
+  isRevokedIdentity,
+  isSessionTokenAllowed
+} from "@/lib/session-policy";
 
 type NextAuthInstance = ReturnType<typeof NextAuth>;
 type AuthRouteHandler = NextAuthInstance["handlers"]["GET"];
@@ -35,7 +41,11 @@ export async function signOut(...args: Parameters<NextAuthInstance["signOut"]>) 
 
 export async function auth() {
   requireAuthSecret();
-  return devSessionFromEnv() ?? getNextAuth().auth();
+  const devSession = devSessionFromEnv();
+  if (devSession?.user?.email) {
+    return isRevokedIdentity(undefined, devSession.user.email) ? null : devSession;
+  }
+  return getNextAuth().auth();
 }
 
 function hostedDomainHint(): string | undefined {
@@ -53,6 +63,7 @@ function getNextAuth(): NextAuthInstance {
     nextAuth = NextAuth({
       secret,
       trustHost: true,
+      session: { strategy: "jwt", maxAge: AUTH_SESSION_MAX_AGE_SECONDS },
       providers: [
         Google({
           clientId: process.env.AUTH_GOOGLE_ID,
@@ -65,8 +76,25 @@ function getNextAuth(): NextAuthInstance {
         })
       ],
       callbacks: {
-        async signIn({ profile }) {
-          return isVerifiedAllowedCompanyEmail(profile?.email, profile?.email_verified);
+        async signIn({ account, profile }) {
+          return isAllowedGoogleSignIn(account, profile);
+        },
+        async jwt({ token, account, profile, trigger }) {
+          if (trigger === "signIn" || trigger === "signUp") {
+            return createGoogleSessionToken(token, account, profile);
+          }
+          // Never copy client-provided session update data into the token.
+          return isSessionTokenAllowed(token) ? token : null;
+        },
+        async session({ session, token }) {
+          // Keep the subject and authentication timestamp inside the encrypted
+          // cookie; the public session exposes only the usual user fields.
+          return {
+            ...session,
+            expires: new Date(
+              ((token.authenticatedAt as number) + AUTH_SESSION_MAX_AGE_SECONDS) * 1000
+            ).toISOString()
+          };
         }
       }
     });

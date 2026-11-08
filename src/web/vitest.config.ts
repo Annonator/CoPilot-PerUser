@@ -5,7 +5,8 @@ export default defineConfig({
   plugins: [react()],
   test: {
     environment: "jsdom",
-    globals: true
+    globals: true,
+    server: { deps: { inline: ["next-auth"] } }
   },
   resolve: {
     alias: {

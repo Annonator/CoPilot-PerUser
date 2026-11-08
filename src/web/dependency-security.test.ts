@@ -1,7 +1,7 @@
 // @vitest-environment node
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -12,6 +12,8 @@ const nextRequire = createRequire(require.resolve("@next/eslint-plugin-next"));
 const globRequire = createRequire(nextRequire.resolve("fast-glob"));
 const micromatchRequire = createRequire(globRequire.resolve("micromatch"));
 const bracesPath = micromatchRequire.resolve("braces");
+const estreeRequire = createRequire(require.resolve("@typescript-eslint/typescript-estree"));
+const minimatchPath = estreeRequire.resolve("minimatch");
 
 type Ast = { type: string; nodes: Ast[] };
 type Walker = "compile" | "expand" | "stringify";
@@ -99,5 +101,54 @@ describe("Next lint root directory resolution", () => {
       cwd: fixture,
       settings: { next: { rootDir: path.join(fixture, "apps", "{web,docs}") } }
     }).sort()).toEqual([web, docs].sort());
+  });
+});
+
+describe("patched minimatch on the TypeScript parser dependency path", () => {
+  it("bounds globstar parent-pattern amplification", () => {
+    // GHSA-g3hv-75wg-m249: optimizationLevel 2 used to grow globParts
+    // without a bound. A subprocess also catches regressions that hang.
+    const source = `
+      const { Minimatch } = require(${JSON.stringify(minimatchPath)});
+      try {
+        new Minimatch('**/../a/b/'.repeat(30) + 'target', { optimizationLevel: 2 });
+        console.log(JSON.stringify({ name: 'accepted', message: '' }));
+      } catch (error) {
+        console.log(JSON.stringify({ name: error.name, message: error.message }));
+      }
+    `;
+    const result = JSON.parse(execFileSync(process.execPath, ["-e", source], {
+      encoding: "utf8",
+      timeout: 3000
+    }));
+    expect(result.name).toBe("RangeError");
+    expect(result.message).toContain("too many patterns");
+  });
+
+  it("preserves the parser's default-project glob matching", () => {
+    const fixture = mkdtempSync(path.join(tmpdir(), "copilot-ts-project-"));
+    const source = "const answer: number = 42;";
+    writeFileSync(path.join(fixture, "tsconfig.json"), JSON.stringify({
+      compilerOptions: { strict: true },
+      include: ["src/**/*.ts"]
+    }));
+    writeFileSync(path.join(fixture, "included.ts"), source);
+    const parser = require("@typescript-eslint/parser") as {
+      parseForESLint: (source: string, options: object) => {
+        ast: { type: string };
+        services: { program?: unknown };
+      };
+    };
+    try {
+      const result = parser.parseForESLint(source, {
+        filePath: path.join(fixture, "included.ts"),
+        tsconfigRootDir: fixture,
+        projectService: { allowDefaultProject: ["*.ts"] }
+      });
+      expect(result.ast.type).toBe("Program");
+      expect(result.services.program).toBeDefined();
+    } finally {
+      rmSync(fixture, { recursive: true, force: true });
+    }
   });
 });

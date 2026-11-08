@@ -12,7 +12,7 @@ src/api   Go backend
 docs      specs and implementation plans
 ```
 
-Use Node.js 26.12.1 for host development, matching Docker and `.nvmrc`, and
+Use Node.js 26.13.0 for host development, matching Docker and `.nvmrc`, and
 Go 1.27.3 or newer in the 1.27 release line. Node.js 22.23.4+ and 24.22.1+ are also
 supported within their respective release lines. Dependency installation and
 the web development, build, and start commands reject older Node.js versions.
@@ -40,6 +40,23 @@ package versions may still report the development-only lint dependency chain.
 Keep the override until a published
 patched release is available, then replace it and rerun the security regression
 tests and application checks. Do not relabel the package to hide audit warnings.
+
+### Dependency Compatibility and Temporary Overrides
+
+ESLint remains on 9.39.5 because the latest `eslint-plugin-react` 7.37.5,
+used by `eslint-config-next`, does not support ESLint 10 in its peer range.
+TypeScript remains on 6.0.3 because the latest `typescript-eslint` 8.72.1
+supports TypeScript versions below 6.1. Upgrade these when their dependent
+tooling supports the newer major versions. `next-auth` stays on the latest
+5.0 beta, 5.0.0-beta.32, which the application already uses.
+
+`@typescript-eslint/typescript-estree` temporarily overrides `minimatch` to
+11.0.5 to fix [glob-pattern amplification (GHSA-g3hv-75wg-m249)](https://github.com/advisories/GHSA-g3hv-75wg-m249).
+The latest parser still requests vulnerable minimatch 10. The override applies
+only to that parser dependency; the security tests check bounded malicious
+pattern handling and the parser's default-project glob matching. Remove it
+when the parser accepts a patched release directly, then rerun the dependency
+security tests, lint, typecheck, and build.
 
 ## Local Configuration
 

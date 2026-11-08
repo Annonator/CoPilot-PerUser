@@ -6,6 +6,12 @@ multi-ecosystem-groups:
       interval: "monthly"
 
 updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    patterns:
+      - "*"
+    multi-ecosystem-group: "monthly-dependencies"
+
   - package-ecosystem: "npm"
     directory: "/src/web"
     patterns:
